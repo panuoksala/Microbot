@@ -990,6 +990,216 @@ dotnet run
 - [x] Azure OpenAI provider support
 - [x] Ollama provider support (via OpenAI-compatible API at `http://localhost:11434/v1`)
 
+### Phase 7: Outlook Skill ✅ COMPLETED
+- [x] Create Microbot.Skills.Outlook project
+- [x] Implement OutlookSkillMode enum (ReadOnly, ReadWriteCalendar, Full)
+- [x] Add OutlookSkillConfig to MicrobotConfig
+- [x] Implement OutlookAuthenticationService (Device Code and Interactive Browser flows)
+- [x] Implement OutlookSkill with KernelFunction methods
+- [x] Add email reading functions (list_emails, get_email, search_emails)
+- [x] Add email sending functions (send_email, reply_to_email, forward_email)
+- [x] Add calendar reading functions (list_calendar_events, get_calendar_event)
+- [x] Add calendar write functions (create_calendar_event, update_calendar_event, delete_calendar_event)
+- [x] Implement permission checking based on OutlookSkillMode
+- [x] Create OutlookSkillLoader and register with SkillManager
+- [x] Update configuration wizard for Outlook skill setup
+- [x] Document Azure AD app registration steps (see plans/outlook-skill-implementation.md)
+
+### Phase 8: Skill Configuration Commands ✅ COMPLETED
+- [x] Create AvailableSkill model in Microbot.Core/Models
+- [x] Add GetAvailableSkills method to SkillManager
+- [x] Update ConsoleUIService with DisplayAvailableSkills method
+- [x] Create SkillConfigurationService for interactive skill configuration
+- [x] Implement Outlook skill configuration wizard
+- [x] Add ReloadSkillsAsync method to AgentService
+- [x] Update Program.cs to handle /skills avail and /skills config commands
+- [x] Update DisplayHelp with new commands
+- [x] Document implementation in plans/skill-configuration-plan.md
+
+#### New Commands Added
+- `/skills avail` - Lists all available skills with their current status (Enabled/Disabled/Not Configured)
+- `/skills config <skillname>` - Runs an interactive wizard to configure a specific skill
+
+#### Files Created/Modified
+| File | Action | Description |
+|------|--------|-------------|
+| `Microbot.Core/Models/AvailableSkill.cs` | Created | Model for available skills with status |
+| `Microbot.Skills/SkillManager.cs` | Modified | Added GetAvailableSkills() method |
+| `Microbot.Console/Services/ConsoleUIService.cs` | Modified | Added DisplayAvailableSkills(), updated DisplayHelp() |
+| `Microbot.Console/Services/SkillConfigurationService.cs` | Created | Interactive skill configuration wizards |
+| `Microbot.Console/Services/AgentService.cs` | Modified | Added ReloadSkillsAsync() method |
+| `Microbot.Console/Program.cs` | Modified | Added /skills avail and /skills config command handlers |
+| `plans/skill-configuration-plan.md` | Created | Detailed implementation documentation |
+
+### Phase 9: MCP Registry Integration ✅ COMPLETED
+- [x] Research MCP Registry API at https://registry.modelcontextprotocol.io
+- [x] Create MCP Registry models (McpRegistryServer, McpRegistryPackage, McpEnvironmentVariable, McpRegistryResponse)
+- [x] Implement McpRegistryClient for API communication
+- [x] Implement McpRegistryService for business logic
+- [x] Add /mcp list command with pagination (50 items per page)
+- [x] Add /mcp list <search> command for searching servers
+- [x] Add /mcp install <name> command to install servers from registry
+- [x] Add /mcp info <name> command to show server details
+- [x] Update McpServerConfig with registry tracking fields (RegistryName, RegistryVersion, RegistryPackageType, RegistryPackageId)
+- [x] Add McpEnvVarDefinition model for environment variable documentation
+- [x] Implement environment variable expansion syntax (${env:VAR_NAME})
+- [x] Update McpSkillLoader to expand environment variables
+- [x] Update ConsoleUIService.DisplayHelp() with /mcp commands
+
+#### MCP Registry Commands
+| Command | Description |
+|---------|-------------|
+| `/mcp list` | List all MCP servers from the registry (paginated, 50 per page) |
+| `/mcp list <search>` | Search for MCP servers by name or description |
+| `/mcp install <name>` | Install an MCP server from the registry |
+| `/mcp info <name>` | Show details about a specific MCP server |
+
+#### Environment Variable Syntax
+The configuration supports special syntax for loading values from system environment variables:
+- `${env:VAR_NAME}` - Load from system environment variable (recommended)
+- `${VAR_NAME}` - Legacy syntax, also loads from system environment variable
+- `%VAR_NAME%` - Windows environment variable syntax
+
+Example configuration:
+```json
+{
+  "skills": {
+    "mcpServers": [
+      {
+        "name": "github-mcp",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-github"],
+        "env": {
+          "GITHUB_TOKEN": "${env:GITHUB_TOKEN}"
+        },
+        "enabled": true,
+        "registryName": "io.github/github-mcp",
+        "registryVersion": "1.0.0"
+      }
+    ]
+  }
+}
+```
+
+#### Files Created/Modified
+| File | Action | Description |
+|------|--------|-------------|
+| `Microbot.Core/Models/McpRegistry/McpRegistryServer.cs` | Created | Server model from registry API |
+| `Microbot.Core/Models/McpRegistry/McpRegistryPackage.cs` | Created | Package model (npm/oci) |
+| `Microbot.Core/Models/McpRegistry/McpEnvironmentVariable.cs` | Created | Environment variable definition |
+| `Microbot.Core/Models/McpRegistry/McpRegistryResponse.cs` | Created | API response wrappers |
+| `Microbot.Core/Services/McpRegistryClient.cs` | Created | HTTP client for registry API |
+| `Microbot.Console/Services/McpRegistryService.cs` | Created | Business logic for registry operations |
+| `Microbot.Core/Models/MicrobotConfig.cs` | Modified | Added registry tracking fields and McpEnvVarDefinition |
+| `Microbot.Skills/Loaders/McpSkillLoader.cs` | Modified | Added ExpandEnvironmentValue() method |
+| `Microbot.Console/Program.cs` | Modified | Added /mcp command handlers |
+| `Microbot.Console/Services/ConsoleUIService.cs` | Modified | Updated DisplayHelp() with /mcp commands |
+
+### Phase 10: MCP Tool Parameter Metadata Fix ✅ COMPLETED
+- [x] Identified issue: MCP tools were not working because parameter metadata was not being extracted
+- [x] Updated McpSkillLoader.CreateKernelFunctionFromMcpTool() to use KernelFunctionFromMethodOptions
+- [x] Implemented ExtractParameterMetadata() to parse MCP tool's JsonSchema
+- [x] Added GetParameterType() to map JSON schema types to .NET types
+- [x] Added GetDefaultValue() to extract default values from JSON schema
+- [x] Added proper KernelReturnParameterMetadata for function return type
+
+#### Problem Description
+MCP tools were being loaded but not working correctly with Semantic Kernel because:
+1. The `KernelFunction` was created without parameter metadata
+2. Semantic Kernel couldn't determine what parameters to pass to the function
+3. The AI model couldn't properly invoke the tools
+
+#### Solution
+Updated `McpSkillLoader.cs` to:
+1. Extract parameter metadata from the MCP tool's `JsonSchema` property
+2. Parse the JSON schema to get property names, types, descriptions, and required flags
+3. Create `KernelParameterMetadata` for each parameter
+4. Use `KernelFunctionFromMethodOptions` to pass the metadata when creating the function
+
+#### Files Modified
+| File | Action | Description |
+|------|--------|-------------|
+| `Microbot.Skills/Loaders/McpSkillLoader.cs` | Modified | Added parameter metadata extraction from MCP tool InputSchema |
+
+#### Key Code Changes
+```csharp
+// Extract parameter metadata from the MCP tool's input schema
+var parameters = ExtractParameterMetadata(tool);
+
+// Create the function with proper parameter metadata
+var options = new KernelFunctionFromMethodOptions
+{
+    FunctionName = tool.Name,
+    Description = tool.Description ?? $"Tool from {serverName}",
+    Parameters = parameters,
+    ReturnParameter = new KernelReturnParameterMetadata
+    {
+        Description = "The result of the tool execution",
+        ParameterType = typeof(string)
+    }
+};
+
+return KernelFunctionFactory.CreateFromMethod(CallToolAsync, options);
+```
+
+### Phase 11: Windows Command Resolution Fix ✅ COMPLETED
+- [x] Identified issue: MCP servers using commands like `npx` fail on Windows
+- [x] Root cause: Windows doesn't automatically resolve `.cmd`/`.bat` extensions when spawning processes
+- [x] Implemented ResolveCommand() method to find the full path of commands on Windows
+- [x] Added PATH environment variable search with common Windows extensions (.cmd, .bat, .exe)
+- [x] Added platform detection to only apply Windows-specific resolution on Windows
+
+#### Problem Description
+When running MCP servers on Windows, commands like `npx` would fail because:
+1. `Process.Start` (used by `StdioClientTransport`) doesn't automatically resolve `.cmd` extensions
+2. The actual executable is `npx.cmd` in the Node.js installation directory
+3. The MCP server would fail to start, and the AI would report "no MCP installed"
+
+#### Solution
+Added `ResolveCommand()` method in `McpSkillLoader.cs` that:
+1. Checks if running on Windows (skips resolution on other platforms)
+2. Searches the PATH environment variable for the command
+3. Tries common Windows extensions: `.cmd`, `.bat`, `.exe`, and no extension
+4. Returns the full path to the executable if found
+
+#### Files Modified
+| File | Action | Description |
+|------|--------|-------------|
+| `Microbot.Skills/Loaders/McpSkillLoader.cs` | Modified | Added ResolveCommand() method for Windows command resolution |
+
+#### Key Code Changes
+```csharp
+/// <summary>
+/// Resolves a command to its full path on Windows.
+/// On Windows, commands like "npx" need to be resolved to "npx.cmd" because
+/// Process.Start doesn't automatically resolve .cmd/.bat extensions.
+/// </summary>
+private static string ResolveCommand(string command)
+{
+    if (!OperatingSystem.IsWindows())
+        return command;
+
+    // Search PATH for the command with Windows extensions
+    var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+    var paths = pathEnv.Split(Path.PathSeparator);
+    var extensions = new[] { ".cmd", ".bat", ".exe", "" };
+
+    foreach (var path in paths)
+    {
+        foreach (var ext in extensions)
+        {
+            var fullPath = Path.Combine(path, command + ext);
+            if (File.Exists(fullPath))
+            {
+                return fullPath;
+            }
+        }
+    }
+
+    return command;
+}
+```
+
 ## Next Steps
 
 After completing this implementation:
@@ -998,4 +1208,8 @@ After completing this implementation:
 2. ~~**Implement Configuration Wizard**~~ - ✅ Completed
 3. **Add Conversation History** - Persist chat history between sessions
 4. **Create Custom Aspire Dashboard** - Web UI for monitoring and configuration
-5. **Add Skill Hot-Reload** - Reload skills without restarting the application
+5. ~~**Add Skill Hot-Reload**~~ - ✅ Completed (via /skills config and reload prompt)
+6. ~~**Skill Registry**~~ - ✅ Completed (MCP Registry integration)
+7. **MCP Server Configuration** - Add /skills config mcp to add/edit MCP servers
+8. **NuGet Skill Configuration** - Add /skills config nuget to add/edit NuGet skills
+9. **MCP Server Updates** - Add /mcp update command to check for and apply updates

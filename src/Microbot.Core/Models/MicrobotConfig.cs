@@ -76,6 +76,47 @@ public class SkillsConfig
     /// List of NuGet skill configurations.
     /// </summary>
     public List<NuGetSkillConfig> NuGetSkills { get; set; } = [];
+
+    /// <summary>
+    /// Outlook skill configuration.
+    /// </summary>
+    public OutlookSkillConfig Outlook { get; set; } = new();
+}
+
+/// <summary>
+/// Configuration for the Outlook skill.
+/// </summary>
+public class OutlookSkillConfig
+{
+    /// <summary>
+    /// Whether the Outlook skill is enabled.
+    /// </summary>
+    public bool Enabled { get; set; } = false;
+
+    /// <summary>
+    /// The permission mode for the Outlook skill: "ReadOnly", "ReadWriteCalendar", or "Full".
+    /// </summary>
+    public string Mode { get; set; } = "ReadOnly";
+
+    /// <summary>
+    /// Azure AD Application (client) ID.
+    /// </summary>
+    public string? ClientId { get; set; }
+
+    /// <summary>
+    /// Azure AD Tenant ID. Use "common" for multi-tenant or personal accounts.
+    /// </summary>
+    public string TenantId { get; set; } = "common";
+
+    /// <summary>
+    /// Authentication method: "DeviceCode" or "InteractiveBrowser".
+    /// </summary>
+    public string AuthenticationMethod { get; set; } = "DeviceCode";
+
+    /// <summary>
+    /// Redirect URI for Interactive Browser authentication.
+    /// </summary>
+    public string RedirectUri { get; set; } = "http://localhost";
 }
 
 /// <summary>
@@ -105,6 +146,10 @@ public class McpServerConfig
 
     /// <summary>
     /// Environment variables to set for the process.
+    /// Supports special syntax:
+    /// - ${env:VAR_NAME} - Load from system environment variable
+    /// - ${secret:key_name} - Load from secrets section
+    /// - Plain value - Use as-is
     /// </summary>
     public Dictionary<string, string> Env { get; set; } = [];
 
@@ -112,6 +157,64 @@ public class McpServerConfig
     /// Whether this MCP server is enabled.
     /// </summary>
     public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Original name from the MCP Registry (e.g., "io.github/github-mcp").
+    /// Used to track installed servers and check for updates.
+    /// </summary>
+    public string? RegistryName { get; set; }
+
+    /// <summary>
+    /// Version installed from the MCP Registry.
+    /// </summary>
+    public string? RegistryVersion { get; set; }
+
+    /// <summary>
+    /// Package type from registry: "npm" or "oci".
+    /// </summary>
+    public string? RegistryPackageType { get; set; }
+
+    /// <summary>
+    /// Package identifier from registry (e.g., "@scope/package" or "docker.io/image").
+    /// </summary>
+    public string? RegistryPackageId { get; set; }
+
+    /// <summary>
+    /// Definitions of required/optional environment variables from the registry.
+    /// Used to inform users about configuration requirements.
+    /// </summary>
+    public List<McpEnvVarDefinition>? EnvVarDefinitions { get; set; }
+}
+
+/// <summary>
+/// Definition of an environment variable for an MCP server.
+/// </summary>
+public class McpEnvVarDefinition
+{
+    /// <summary>
+    /// Name of the environment variable.
+    /// </summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Description of what the variable is used for.
+    /// </summary>
+    public string? Description { get; set; }
+
+    /// <summary>
+    /// Whether this variable is required.
+    /// </summary>
+    public bool IsRequired { get; set; }
+
+    /// <summary>
+    /// Whether this variable contains sensitive data.
+    /// </summary>
+    public bool IsSecret { get; set; }
+
+    /// <summary>
+    /// Default value if not provided.
+    /// </summary>
+    public string? Default { get; set; }
 }
 
 /// <summary>

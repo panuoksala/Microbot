@@ -155,6 +155,10 @@ public class Program
             "Enter a name for your AI assistant (default: Microbot):",
             "Microbot");
 
+        // Outlook skill configuration
+        AnsiConsole.WriteLine();
+        ConfigureOutlookSkill();
+
         AnsiConsole.WriteLine();
         _ui.DisplaySuccess("Initial setup complete!");
         
@@ -162,11 +166,85 @@ public class Program
     }
 
     /// <summary>
+    /// Configures the Outlook skill settings.
+    /// </summary>
+    private static void ConfigureOutlookSkill()
+    {
+        var enableOutlook = AnsiConsole.Confirm(
+            "[cyan]Would you like to enable the Outlook skill?[/] (requires Azure AD app registration)",
+            false);
+
+        if (!enableOutlook)
+        {
+            _config.Skills.Outlook.Enabled = false;
+            return;
+        }
+
+        _config.Skills.Outlook.Enabled = true;
+
+        // Mode selection
+        var mode = _ui.SelectOption(
+            "Select Outlook skill permission mode:",
+            new[] { "ReadOnly", "ReadWriteCalendar", "Full" });
+        _config.Skills.Outlook.Mode = mode;
+
+        // Display mode description
+        var modeDescription = mode switch
+        {
+            "ReadOnly" => "Read emails and calendar events only",
+            "ReadWriteCalendar" => "Read emails, read/write calendar events",
+            "Full" => "Read/send emails, read/write calendar events",
+            _ => ""
+        };
+        _ui.DisplayInfo($"Mode: {modeDescription}");
+        AnsiConsole.WriteLine();
+
+        // Client ID
+        _config.Skills.Outlook.ClientId = _ui.PromptText(
+            "Enter your Azure AD Application (Client) ID:");
+
+        // Tenant ID
+        _config.Skills.Outlook.TenantId = _ui.PromptText(
+            "Enter your Tenant ID (or 'common' for multi-tenant):",
+            "common");
+
+        // Authentication method
+        var authMethod = _ui.SelectOption(
+            "Select authentication method:",
+            new[] { "DeviceCode", "InteractiveBrowser" });
+        _config.Skills.Outlook.AuthenticationMethod = authMethod;
+
+        if (authMethod == "InteractiveBrowser")
+        {
+            _config.Skills.Outlook.RedirectUri = _ui.PromptText(
+                "Enter Redirect URI:",
+                "http://localhost");
+        }
+
+        _ui.DisplaySuccess("Outlook skill configured!");
+        _ui.DisplayInfo("Note: You will be prompted to authenticate when the skill is first used.");
+    }
+
+    /// <summary>
     /// Initializes the AI agent with skills.
     /// </summary>
     private static async Task InitializeAgentAsync()
     {
-        _agentService = new AgentService(_config, _loggerFactory);
+        // Create device code callback for Outlook authentication
+        Action<string>? deviceCodeCallback = null;
+        if (_config.Skills.Outlook?.Enabled == true &&
+            _config.Skills.Outlook.AuthenticationMethod?.Equals("DeviceCode", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            deviceCodeCallback = message =>
+            {
+                AnsiConsole.WriteLine();
+                AnsiConsole.MarkupLine("[yellow]Outlook Authentication Required[/]");
+                AnsiConsole.MarkupLine($"[cyan]{Markup.Escape(message)}[/]");
+                AnsiConsole.WriteLine();
+            };
+        }
+
+        _agentService = new AgentService(_config, _loggerFactory, deviceCodeCallback);
 
         await _ui.WithSpinnerAsync("Initializing AI agent and loading skills...", async () =>
         {
@@ -242,8 +320,9 @@ public class Program
     /// <returns>True if the loop should continue, false to exit.</returns>
     private static async Task<bool> HandleCommandAsync(string command)
     {
-        var parts = command.ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var cmd = parts[0];
+        // Split preserving original case for skill names
+        var parts = command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var cmd = parts[0].ToLowerInvariant();
 
         switch (cmd)
         {
@@ -252,14 +331,11 @@ public class Program
                 break;
 
             case "/skills":
-                if (_agentService.SkillManager != null)
-                {
-                    _ui.DisplaySkillsSummary(_agentService.SkillManager.GetSkillSummaries());
-                }
-                else
-                {
-                    _ui.DisplayWarning("No skills loaded");
-                }
+                await HandleSkillsCommandAsync(parts);
+                break;
+
+            case "/mcp":
+                await HandleMcpCommandAsync(parts);
                 break;
 
             case "/clear":
@@ -297,6 +373,203 @@ public class Program
     }
 
     /// <summary>
+    /// Handles /skills subcommands.
+    /// </summary>
+    /// <param name="parts">The command parts.</param>
+    private static async Task HandleSkillsCommandAsync(string[] parts)
+    {
+        if (parts.Length < 2)
+        {
+            // Default: show loaded skills (existing behavior)
+            if (_agentService.SkillManager != null)
+            {
+                _ui.DisplaySkillsSummary(_agentService.SkillManager.GetSkillSummaries());
+            }
+            else
+            {
+                _ui.DisplayWarning("No skills loaded");
+            }
+            return;
+        }
+
+        var subCommand = parts[1].ToLowerInvariant();
+
+        switch (subCommand)
+        {
+            case "avail":
+            case "available":
+                DisplayAvailableSkills();
+                break;
+
+            case "config":
+            case "configure":
+                if (parts.Length < 3)
+                {
+                    _ui.DisplayWarning("Usage: /skills config <skillname>");
+                    _ui.DisplayInfo("Example: /skills config outlook");
+                    return;
+                }
+                await ConfigureSkillAsync(parts[2]);
+                break;
+
+            default:
+                // Treat as showing loaded skills (existing behavior)
+                if (_agentService.SkillManager != null)
+                {
+                    _ui.DisplaySkillsSummary(_agentService.SkillManager.GetSkillSummaries());
+                }
+                else
+                {
+                    _ui.DisplayWarning("No skills loaded");
+                }
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Displays available skills.
+    /// </summary>
+    private static void DisplayAvailableSkills()
+    {
+        if (_agentService.SkillManager != null)
+        {
+            var availableSkills = _agentService.SkillManager.GetAvailableSkills();
+            _ui.DisplayAvailableSkills(availableSkills);
+        }
+        else
+        {
+            _ui.DisplayWarning("Skill manager not initialized");
+        }
+    }
+
+    /// <summary>
+    /// Configures a skill interactively.
+    /// </summary>
+    /// <param name="skillId">The skill ID to configure.</param>
+    private static async Task ConfigureSkillAsync(string skillId)
+    {
+        var configService = new SkillConfigurationService(_ui);
+        
+        if (configService.ConfigureSkill(skillId, _config))
+        {
+            // Save the updated configuration
+            await _configService.SaveConfigurationAsync(_config);
+            _ui.DisplaySuccess("Configuration saved.");
+            
+            // Prompt to reload
+            if (AnsiConsole.Confirm("[cyan]Would you like to reload skills now?[/]", true))
+            {
+                await _ui.WithSpinnerAsync("Reloading skills...", async () =>
+                {
+                    await _agentService.ReloadSkillsAsync(_config, _cts.Token);
+                });
+                _ui.DisplaySuccess("Skills reloaded.");
+                
+                if (_agentService.SkillManager != null)
+                {
+                    _ui.DisplaySkillsSummary(_agentService.SkillManager.GetSkillSummaries());
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Handles /mcp subcommands for MCP Registry operations.
+    /// </summary>
+    /// <param name="parts">The command parts.</param>
+    private static async Task HandleMcpCommandAsync(string[] parts)
+    {
+        if (parts.Length < 2)
+        {
+            DisplayMcpHelp();
+            return;
+        }
+
+        var subCommand = parts[1].ToLowerInvariant();
+
+        using var registryService = new McpRegistryService(_ui);
+
+        switch (subCommand)
+        {
+            case "list":
+                // /mcp list [search]
+                var search = parts.Length > 2 ? string.Join(" ", parts.Skip(2)) : null;
+                await _ui.WithSpinnerAsync("Fetching MCP servers from registry...", async () =>
+                {
+                    await registryService.ListServersAsync(search, 50, _cts.Token);
+                });
+                break;
+
+            case "install":
+                // /mcp install <server-name>
+                if (parts.Length < 3)
+                {
+                    _ui.DisplayWarning("Usage: /mcp install <server-name>");
+                    _ui.DisplayInfo("Example: /mcp install io.github/github-mcp");
+                    return;
+                }
+                var serverName = parts[2];
+                var installed = await registryService.InstallServerAsync(serverName, _config, _cts.Token);
+                if (installed)
+                {
+                    // Save the updated configuration
+                    await _configService.SaveConfigurationAsync(_config);
+                    _ui.DisplaySuccess("Configuration saved.");
+                    _ui.DisplayInfo("The server is disabled by default. Configure the required environment variables in Microbot.config, then set 'enabled' to true.");
+                }
+                break;
+
+            case "info":
+                // /mcp info <server-name>
+                if (parts.Length < 3)
+                {
+                    _ui.DisplayWarning("Usage: /mcp info <server-name>");
+                    _ui.DisplayInfo("Example: /mcp info io.github/github-mcp");
+                    return;
+                }
+                await _ui.WithSpinnerAsync("Fetching server details...", async () =>
+                {
+                    await registryService.ShowServerDetailsAsync(parts[2], _cts.Token);
+                });
+                break;
+
+            case "help":
+            default:
+                DisplayMcpHelp();
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Displays help for /mcp commands.
+    /// </summary>
+    private static void DisplayMcpHelp()
+    {
+        var table = new Table()
+            .Border(TableBorder.None)
+            .HideHeaders()
+            .AddColumn("Command")
+            .AddColumn("Description");
+
+        table.AddRow("[cyan]/mcp list[/]", "List all MCP servers from the registry (paginated, 50 per page)");
+        table.AddRow("[cyan]/mcp list <search>[/]", "Search for MCP servers by name or description");
+        table.AddRow("[cyan]/mcp install <name>[/]", "Install an MCP server from the registry");
+        table.AddRow("[cyan]/mcp info <name>[/]", "Show details about a specific MCP server");
+
+        var panel = new Panel(table)
+        {
+            Header = new PanelHeader("[cyan]MCP Registry Commands[/]"),
+            Border = BoxBorder.Rounded,
+            Padding = new Padding(2, 1)
+        };
+
+        AnsiConsole.Write(panel);
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[grey]The MCP Registry is at https://registry.modelcontextprotocol.io[/]");
+        AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
     /// Displays the current configuration.
     /// </summary>
     private static void DisplayCurrentConfig()
@@ -314,6 +587,12 @@ public class Program
         table.AddRow("Use Streaming", _config.Preferences.UseStreaming.ToString());
         table.AddRow("MCP Servers", _config.Skills.McpServers.Count.ToString());
         table.AddRow("NuGet Skills", _config.Skills.NuGetSkills.Count.ToString());
+
+        // Outlook skill settings
+        var outlookStatus = _config.Skills.Outlook?.Enabled == true
+            ? $"[green]Enabled[/] ({_config.Skills.Outlook.Mode})"
+            : "[grey]Disabled[/]";
+        table.AddRow("Outlook Skill", outlookStatus);
 
         var panel = new Panel(table)
         {

@@ -419,3 +419,7 @@ FodyWeavers.xsd
 
 # Microbot configuration file
 Microbot.config
+stderr.txt
+stdout.txt
+temp-calc/package-lock.json
+temp-calc/package.json

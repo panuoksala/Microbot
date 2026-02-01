@@ -5,17 +5,22 @@ using Microsoft.SemanticKernel;
 using Microbot.Core.Interfaces;
 using Microbot.Core.Models;
 using Microbot.Skills.Loaders;
+using System.Collections.Generic;
+using System.Linq;
 
 /// <summary>
-/// Manages the loading and registration of all skills (MCP and NuGet).
+/// Manages the loading and registration of all skills (MCP, NuGet, and built-in skills like Outlook).
 /// </summary>
 public class SkillManager : IAsyncDisposable
 {
     private readonly SkillsConfig _config;
     private readonly ILogger<SkillManager>? _logger;
+    private readonly ILoggerFactory? _loggerFactory;
     private readonly McpSkillLoader _mcpLoader;
     private readonly NuGetSkillLoader _nugetLoader;
+    private readonly OutlookSkillLoader? _outlookLoader;
     private readonly List<KernelPlugin> _loadedPlugins = [];
+    private readonly Action<string>? _deviceCodeCallback;
     private bool _disposed;
 
     /// <summary>
@@ -28,16 +33,33 @@ public class SkillManager : IAsyncDisposable
     /// </summary>
     /// <param name="config">Skills configuration.</param>
     /// <param name="loggerFactory">Optional logger factory.</param>
-    public SkillManager(SkillsConfig config, ILoggerFactory? loggerFactory = null)
+    /// <param name="deviceCodeCallback">Optional callback for device code authentication messages.</param>
+    public SkillManager(
+        SkillsConfig config,
+        ILoggerFactory? loggerFactory = null,
+        Action<string>? deviceCodeCallback = null)
     {
         _config = config;
+        _loggerFactory = loggerFactory;
         _logger = loggerFactory?.CreateLogger<SkillManager>();
+        _deviceCodeCallback = deviceCodeCallback;
+
+        // Initialize loaders
         _mcpLoader = new McpSkillLoader(config, loggerFactory?.CreateLogger<McpSkillLoader>());
         _nugetLoader = new NuGetSkillLoader(config, loggerFactory?.CreateLogger<NuGetSkillLoader>());
+
+        // Initialize Outlook loader if configured
+        if (config.Outlook?.Enabled == true)
+        {
+            _outlookLoader = new OutlookSkillLoader(
+                config.Outlook,
+                loggerFactory?.CreateLogger<OutlookSkillLoader>(),
+                deviceCodeCallback);
+        }
     }
 
     /// <summary>
-    /// Loads all skills from both MCP servers and NuGet packages.
+    /// Loads all skills from MCP servers, NuGet packages, and built-in skills.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A collection of all loaded plugins.</returns>
@@ -51,14 +73,34 @@ public class SkillManager : IAsyncDisposable
         // Load MCP skills
         try
         {
-            _logger?.LogInformation("Loading MCP skills...");
+            var enabledServers = _config.McpServers.Count(s => s.Enabled);
+            _logger?.LogInformation("Loading MCP skills from {Count} configured servers...", enabledServers);
+            Console.WriteLine($"[Skills] Loading MCP skills from {enabledServers} configured servers...");
+            
             var mcpPlugins = await _mcpLoader.LoadSkillsAsync(cancellationToken);
-            _loadedPlugins.AddRange(mcpPlugins);
-            _logger?.LogInformation("Loaded {Count} MCP plugins", mcpPlugins.Count());
+            var mcpPluginsList = mcpPlugins.ToList();
+            _loadedPlugins.AddRange(mcpPluginsList);
+            _logger?.LogInformation("Loaded {Count} MCP plugins", mcpPluginsList.Count);
+            Console.WriteLine($"[Skills] Loaded {mcpPluginsList.Count} MCP plugins");
+            
+            // Log each loaded plugin
+            foreach (var plugin in mcpPluginsList)
+            {
+                _logger?.LogInformation("  - MCP Plugin: {PluginName} with {FunctionCount} functions",
+                    plugin.Name, plugin.Count());
+                Console.WriteLine($"[Skills]   - MCP Plugin: {plugin.Name} with {plugin.Count()} functions");
+            }
+            
+            if (mcpPluginsList.Count == 0 && enabledServers > 0)
+            {
+                Console.WriteLine($"[Skills Warning] No MCP plugins loaded despite {enabledServers} enabled servers!");
+            }
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error loading MCP skills");
+            _logger?.LogError(ex, "Error loading MCP skills: {Message}", ex.Message);
+            Console.Error.WriteLine($"[Skills Error] Error loading MCP skills: {ex.Message}");
+            Console.Error.WriteLine($"[Skills Error] Stack trace: {ex.StackTrace}");
         }
 
         // Load NuGet skills
@@ -72,6 +114,22 @@ public class SkillManager : IAsyncDisposable
         catch (Exception ex)
         {
             _logger?.LogError(ex, "Error loading NuGet skills");
+        }
+
+        // Load Outlook skill
+        if (_outlookLoader != null)
+        {
+            try
+            {
+                _logger?.LogInformation("Loading Outlook skill...");
+                var outlookPlugins = await _outlookLoader.LoadSkillsAsync(cancellationToken);
+                _loadedPlugins.AddRange(outlookPlugins);
+                _logger?.LogInformation("Loaded {Count} Outlook plugins", outlookPlugins.Count());
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error loading Outlook skill");
+            }
         }
 
         _logger?.LogInformation("Total plugins loaded: {Count}", _loadedPlugins.Count);
@@ -108,6 +166,35 @@ public class SkillManager : IAsyncDisposable
         });
     }
 
+    /// <summary>
+    /// Gets a list of all available skills with their current status.
+    /// </summary>
+    /// <returns>List of available skills.</returns>
+    public IEnumerable<AvailableSkill> GetAvailableSkills()
+    {
+        var skills = new List<AvailableSkill>();
+
+        // Built-in: Outlook skill
+        skills.Add(new AvailableSkill
+        {
+            Id = "outlook",
+            Name = "Outlook",
+            Description = "Microsoft Outlook integration for email and calendar via Microsoft Graph API",
+            Type = SkillType.BuiltIn,
+            IsEnabled = _config.Outlook?.Enabled ?? false,
+            IsConfigured = !string.IsNullOrEmpty(_config.Outlook?.ClientId),
+            ConfigurationSummary = _config.Outlook?.Enabled == true
+                ? $"Mode: {_config.Outlook.Mode}, Auth: {_config.Outlook.AuthenticationMethod}"
+                : _config.Outlook?.ClientId != null
+                    ? $"Mode: {_config.Outlook?.Mode} (disabled)"
+                    : null
+        });
+
+        // Future: Add more built-in skills here
+
+        return skills;
+    }
+
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
@@ -116,6 +203,11 @@ public class SkillManager : IAsyncDisposable
 
         await _mcpLoader.DisposeAsync();
         await _nugetLoader.DisposeAsync();
+
+        if (_outlookLoader != null)
+        {
+            await _outlookLoader.DisposeAsync();
+        }
 
         _loadedPlugins.Clear();
         _disposed = true;

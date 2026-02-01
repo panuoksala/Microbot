@@ -1,0 +1,173 @@
+namespace Microbot.Skills.Outlook.Services;
+
+using Azure.Core;
+using Azure.Identity;
+using Microsoft.Extensions.Logging;
+using Microsoft.Graph;
+using Microbot.Core.Models;
+
+/// <summary>
+/// Handles authentication for the Outlook skill using Azure Identity.
+/// Supports both Device Code and Interactive Browser authentication flows.
+/// </summary>
+public class OutlookAuthenticationService
+{
+    private readonly OutlookSkillConfig _config;
+    private readonly ILogger<OutlookAuthenticationService>? _logger;
+    private GraphServiceClient? _graphClient;
+
+    /// <summary>
+    /// Creates a new OutlookAuthenticationService instance.
+    /// </summary>
+    /// <param name="config">Outlook skill configuration.</param>
+    /// <param name="logger">Optional logger.</param>
+    public OutlookAuthenticationService(
+        OutlookSkillConfig config,
+        ILogger<OutlookAuthenticationService>? logger = null)
+    {
+        _config = config;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Gets the Microsoft Graph scopes required for the configured mode.
+    /// </summary>
+    /// <returns>Array of required scope strings.</returns>
+    public string[] GetRequiredScopes()
+    {
+        var mode = Enum.Parse<OutlookSkillMode>(_config.Mode, ignoreCase: true);
+
+        return mode switch
+        {
+            OutlookSkillMode.ReadOnly =>
+            [
+                "User.Read",
+                "Mail.Read",
+                "Calendars.Read"
+            ],
+            OutlookSkillMode.ReadWriteCalendar =>
+            [
+                "User.Read",
+                "Mail.Read",
+                "Calendars.Read",
+                "Calendars.ReadWrite"
+            ],
+            OutlookSkillMode.Full =>
+            [
+                "User.Read",
+                "Mail.Read",
+                "Mail.Send",
+                "Calendars.Read",
+                "Calendars.ReadWrite"
+            ],
+            _ => throw new ArgumentException($"Unknown mode: {_config.Mode}")
+        };
+    }
+
+    /// <summary>
+    /// Creates and returns an authenticated GraphServiceClient.
+    /// </summary>
+    /// <param name="deviceCodeCallback">Callback to display device code message to user (for Device Code flow).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Authenticated GraphServiceClient instance.</returns>
+    public async Task<GraphServiceClient> GetGraphClientAsync(
+        Action<string>? deviceCodeCallback = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_graphClient != null)
+            return _graphClient;
+
+        if (string.IsNullOrEmpty(_config.ClientId))
+            throw new InvalidOperationException("ClientId is required for Outlook skill authentication");
+
+        var scopes = GetRequiredScopes();
+
+        _logger?.LogInformation(
+            "Authenticating with method: {Method}, Scopes: {Scopes}",
+            _config.AuthenticationMethod,
+            string.Join(", ", scopes));
+
+        TokenCredential credential;
+        var authMethod = _config.AuthenticationMethod.ToLowerInvariant();
+        
+        if (authMethod == "devicecode")
+        {
+            credential = CreateDeviceCodeCredential(deviceCodeCallback);
+        }
+        else if (authMethod == "interactivebrowser")
+        {
+            credential = CreateInteractiveBrowserCredential();
+        }
+        else
+        {
+            throw new ArgumentException(
+                $"Unknown authentication method: {_config.AuthenticationMethod}. " +
+                "Supported methods: DeviceCode, InteractiveBrowser");
+        }
+
+        _graphClient = new GraphServiceClient(credential, scopes);
+
+        // Verify authentication by getting user info
+        try
+        {
+            var user = await _graphClient.Me.GetAsync(cancellationToken: cancellationToken);
+            _logger?.LogInformation(
+                "Successfully authenticated as: {DisplayName} ({Email})",
+                user?.DisplayName ?? "Unknown",
+                user?.UserPrincipalName ?? user?.Mail ?? "Unknown");
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to verify authentication");
+            _graphClient = null;
+            throw;
+        }
+
+        return _graphClient;
+    }
+
+    /// <summary>
+    /// Creates a DeviceCodeCredential for authentication.
+    /// </summary>
+    private DeviceCodeCredential CreateDeviceCodeCredential(Action<string>? callback)
+    {
+        var options = new DeviceCodeCredentialOptions
+        {
+            ClientId = _config.ClientId,
+            TenantId = _config.TenantId,
+            DeviceCodeCallback = (info, ct) =>
+            {
+                var message = info.Message;
+                _logger?.LogInformation("Device Code Authentication: {Message}", message);
+                callback?.Invoke(message);
+                return Task.CompletedTask;
+            }
+        };
+
+        return new DeviceCodeCredential(options);
+    }
+
+    /// <summary>
+    /// Creates an InteractiveBrowserCredential for authentication.
+    /// </summary>
+    private InteractiveBrowserCredential CreateInteractiveBrowserCredential()
+    {
+        var options = new InteractiveBrowserCredentialOptions
+        {
+            ClientId = _config.ClientId,
+            TenantId = _config.TenantId,
+            RedirectUri = new Uri(_config.RedirectUri)
+        };
+
+        return new InteractiveBrowserCredential(options);
+    }
+
+    /// <summary>
+    /// Clears the cached GraphServiceClient, forcing re-authentication on next use.
+    /// </summary>
+    public void ClearCache()
+    {
+        _graphClient = null;
+        _logger?.LogInformation("Authentication cache cleared");
+    }
+}

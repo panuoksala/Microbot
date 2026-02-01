@@ -17,6 +17,7 @@ public class AgentService : IAsyncDisposable
     private readonly MicrobotConfig _config;
     private readonly ILoggerFactory? _loggerFactory;
     private readonly ILogger<AgentService>? _logger;
+    private readonly Action<string>? _deviceCodeCallback;
     private Kernel? _kernel;
     private ChatCompletionAgent? _agent;
     private ChatHistory _chatHistory = [];
@@ -38,11 +39,16 @@ public class AgentService : IAsyncDisposable
     /// </summary>
     /// <param name="config">The Microbot configuration.</param>
     /// <param name="loggerFactory">Optional logger factory.</param>
-    public AgentService(MicrobotConfig config, ILoggerFactory? loggerFactory = null)
+    /// <param name="deviceCodeCallback">Optional callback for device code authentication messages (used by Outlook skill).</param>
+    public AgentService(
+        MicrobotConfig config,
+        ILoggerFactory? loggerFactory = null,
+        Action<string>? deviceCodeCallback = null)
     {
         _config = config;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory?.CreateLogger<AgentService>();
+        _deviceCodeCallback = deviceCodeCallback;
     }
 
     /// <summary>
@@ -68,7 +74,7 @@ public class AgentService : IAsyncDisposable
         _kernel = builder.Build();
 
         // Load and register skills
-        _skillManager = new SkillManager(_config.Skills, _loggerFactory);
+        _skillManager = new SkillManager(_config.Skills, _loggerFactory, _deviceCodeCallback);
         var plugins = await _skillManager.LoadAllSkillsAsync(cancellationToken);
         _skillManager.RegisterPluginsWithKernel(_kernel);
 
@@ -134,6 +140,8 @@ public class AgentService : IAsyncDisposable
     /// </summary>
     private string GetSystemPrompt()
     {
+        var skillsDescription = GetSkillsDescription();
+        
         return $"""
             You are {_config.Preferences.AgentName}, a helpful personal AI assistant.
             
@@ -148,8 +156,43 @@ public class AgentService : IAsyncDisposable
             - If you're unsure about something, say so
             - Respect user privacy and handle sensitive information carefully
             
-            Available skills/tools will be provided to you. Use them when appropriate to help the user.
+            {skillsDescription}
             """;
+    }
+
+    /// <summary>
+    /// Gets a description of available skills for the system prompt.
+    /// </summary>
+    private string GetSkillsDescription()
+    {
+        if (_skillManager == null || !_skillManager.LoadedPlugins.Any())
+        {
+            return "No tools/skills are currently loaded.";
+        }
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("You have access to the following tools/skills:");
+        sb.AppendLine();
+
+        foreach (var plugin in _skillManager.LoadedPlugins)
+        {
+            sb.AppendLine($"**{plugin.Name}**");
+            if (!string.IsNullOrEmpty(plugin.Description))
+            {
+                sb.AppendLine($"  Description: {plugin.Description}");
+            }
+            sb.AppendLine($"  Functions:");
+            foreach (var function in plugin)
+            {
+                var description = function.Description ?? "No description";
+                sb.AppendLine($"    - {function.Name}: {description}");
+            }
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("Use these tools when they can help accomplish the user's request. Call the appropriate function with the required parameters.");
+
+        return sb.ToString();
     }
 
     /// <summary>
@@ -240,6 +283,43 @@ public class AgentService : IAsyncDisposable
     /// Gets the number of messages in the chat history.
     /// </summary>
     public int GetHistoryCount() => _chatHistory.Count;
+
+    /// <summary>
+    /// Reloads skills with updated configuration.
+    /// </summary>
+    /// <param name="config">The updated configuration.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public async Task ReloadSkillsAsync(MicrobotConfig config, CancellationToken cancellationToken = default)
+    {
+        _logger?.LogInformation("Reloading skills...");
+
+        // Dispose existing skill manager
+        if (_skillManager != null)
+        {
+            await _skillManager.DisposeAsync();
+        }
+
+        // Create new skill manager with updated config
+        _skillManager = new SkillManager(
+            config.Skills,
+            _loggerFactory,
+            _deviceCodeCallback);
+
+        // Load skills
+        await _skillManager.LoadAllSkillsAsync(cancellationToken);
+
+        // Re-register with kernel
+        if (_kernel != null)
+        {
+            // Clear existing plugins
+            _kernel.Plugins.Clear();
+            
+            // Register new plugins
+            _skillManager.RegisterPluginsWithKernel(_kernel);
+        }
+
+        _logger?.LogInformation("Skills reloaded successfully");
+    }
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()

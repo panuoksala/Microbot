@@ -3,6 +3,8 @@ namespace Microbot.Console.Services;
 using Spectre.Console;
 using Microbot.Core.Models;
 using Microbot.Skills;
+using System.Collections.Generic;
+using System.Linq;
 
 /// <summary>
 /// Service for handling console UI using Spectre.Console.
@@ -177,14 +179,16 @@ public class ConsoleUIService
     /// <param name="responseStream">The async enumerable of response chunks.</param>
     /// <param name="agentName">The name of the agent.</param>
     public async Task DisplayStreamingResponseAsync(
-        IAsyncEnumerable<string> responseStream, 
+        IAsyncEnumerable<string> responseStream,
         string agentName = "Microbot")
     {
         AnsiConsole.MarkupLine($"[cyan]{agentName}[/] [grey]>[/]");
         
         await foreach (var chunk in responseStream)
         {
-            AnsiConsole.Write(chunk);
+            // Use System.Console.Write to avoid Spectre.Console markup parsing
+            // This prevents crashes when AI responses contain JSON with curly braces
+            System.Console.Write(chunk);
         }
         
         AnsiConsole.WriteLine();
@@ -256,8 +260,14 @@ public class ConsoleUIService
 
         table.AddRow("[cyan]/help[/]", "Show this help message");
         table.AddRow("[cyan]/skills[/]", "List loaded skills");
-        table.AddRow("[cyan]/clear[/]", "Clear the screen");
+        table.AddRow("[cyan]/skills avail[/]", "List all available skills with status");
+        table.AddRow("[cyan]/skills config <name>[/]", "Configure a skill (e.g., /skills config outlook)");
+        table.AddRow("[cyan]/mcp list[/]", "List MCP servers from the registry");
+        table.AddRow("[cyan]/mcp install <name>[/]", "Install an MCP server from the registry");
+        table.AddRow("[cyan]/mcp info <name>[/]", "Show details about an MCP server");
+        table.AddRow("[cyan]/clear[/]", "Clear the screen and chat history");
         table.AddRow("[cyan]/config[/]", "Show current configuration");
+        table.AddRow("[cyan]/reload[/]", "Reload configuration from file");
         table.AddRow("[cyan]/exit[/]", "Exit the application");
 
         var panel = new Panel(table)
@@ -268,6 +278,51 @@ public class ConsoleUIService
         };
 
         AnsiConsole.Write(panel);
+        AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// Displays the list of available skills with their status.
+    /// </summary>
+    /// <param name="skills">The available skills to display.</param>
+    public void DisplayAvailableSkills(IEnumerable<AvailableSkill> skills)
+    {
+        var skillList = skills.ToList();
+
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .BorderColor(Color.Grey)
+            .AddColumn(new TableColumn("[cyan]Skill[/]").LeftAligned())
+            .AddColumn(new TableColumn("[cyan]Type[/]").Centered())
+            .AddColumn(new TableColumn("[cyan]Status[/]").Centered())
+            .AddColumn(new TableColumn("[cyan]Configuration[/]").LeftAligned());
+
+        foreach (var skill in skillList)
+        {
+            var status = skill.IsEnabled
+                ? "[green]Enabled[/]"
+                : skill.IsConfigured
+                    ? "[yellow]Disabled[/]"
+                    : "[grey]Not Configured[/]";
+
+            var config = skill.ConfigurationSummary ?? "[grey]-[/]";
+
+            table.AddRow(
+                $"[white]{Markup.Escape(skill.Name)}[/]\n[grey]{Markup.Escape(skill.Description)}[/]",
+                $"[blue]{skill.Type}[/]",
+                status,
+                config
+            );
+        }
+
+        AnsiConsole.Write(new Panel(table)
+        {
+            Header = new PanelHeader("[cyan]Available Skills[/]"),
+            Border = BoxBorder.Rounded,
+            Padding = new Padding(1, 0)
+        });
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[grey]Use [cyan]/skills config <skillname>[/] to configure a skill.[/]");
         AnsiConsole.WriteLine();
     }
 
