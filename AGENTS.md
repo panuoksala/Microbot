@@ -45,7 +45,8 @@ Microbot/
 │   └── nuget/                   # NuGet package DLLs
 └── src/
     ├── Microbot.Console/        # Main console application
-    │   └── Filters/             # Semantic Kernel filters (safety, timeout)
+    │   ├── Filters/             # Semantic Kernel filters (safety, timeout)
+    │   └── Services/            # Console services (UI, Agent, Markdown rendering)
     ├── Microbot.Core/           # Core domain logic and models
     │   └── Events/              # Lifecycle events for agent loop
     ├── Microbot.Skills/         # Skill loading infrastructure
@@ -61,6 +62,8 @@ Microbot/
 |------|---------|
 | `src/Microbot.Console/Program.cs` | Application entry point and setup wizard |
 | `src/Microbot.Console/Services/AgentService.cs` | AI agent orchestration with agentic loop safety |
+| `src/Microbot.Console/Services/ConsoleUIService.cs` | Console UI rendering with Spectre.Console |
+| `src/Microbot.Console/Services/MarkdownRenderer.cs` | Markdown to Spectre.Console formatting converter |
 | `src/Microbot.Console/Filters/SafetyLimitFilter.cs` | Iteration and function call limiting |
 | `src/Microbot.Console/Filters/TimeoutFilter.cs` | Function timeout enforcement |
 | `src/Microbot.Core/Models/MicrobotConfig.cs` | Configuration models including AgentLoopConfig |
@@ -76,9 +79,17 @@ Microbot/
 - ✅ MCP skill loader
 - ✅ NuGet skill loader
 - ✅ Console UI with Spectre.Console
+- ✅ Markdown rendering in AI responses
+  - Headers (H1-H6) with color-coded styling
+  - Bold, italic, strikethrough text formatting
+  - Code blocks with language indication panels
+  - Inline code with background highlighting
+  - Ordered and unordered lists with proper indentation
+  - Links with clickable formatting
+  - Blockquotes and horizontal rules
 - ✅ First-time setup wizard
 - ✅ AI Provider support: OpenAI, Azure OpenAI, Ollama
-- ✅ Streaming responses
+- ✅ Streaming responses (collected and rendered with markdown)
 - ✅ Chat history management
 - ✅ Outlook skill with Microsoft Graph integration
   - Email reading (list, get, search)

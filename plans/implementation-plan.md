@@ -1200,7 +1200,30 @@ private static string ResolveCommand(string command)
 }
 ```
 
-### Phase 12: Teams Skill 🔲 PLANNED
+### Phase 12: Timezone and Time Context in System Prompt ✅ COMPLETED
+- [x] Added current timezone information to agent system prompt
+- [x] Added current local time and UTC time to system prompt
+- [x] Agent can now understand time-related queries with proper context
+
+#### Implementation Details
+The system prompt now includes a "Current Time Context" section that provides:
+- **Timezone**: Display name and ID (e.g., "FLE Standard Time (Europe/Helsinki)")
+- **UTC Offset**: Formatted offset (e.g., "+02:00" or "-05:00")
+- **Current Local Time**: Formatted as "yyyy-MM-dd HH:mm:ss" with timezone name
+- **Current UTC Time**: Formatted as "yyyy-MM-dd HH:mm:ss UTC"
+
+This information is captured at agent initialization time and helps the agent:
+- Understand "today", "now", "this week" references
+- Schedule events at appropriate times
+- Convert between timezones when needed
+- Provide accurate time-based responses
+
+#### Files Modified
+| File | Action | Description |
+|------|--------|-------------|
+| `Microbot.Console/Services/AgentService.cs` | Modified | Added timezone and time info to GetSystemPrompt() |
+
+### Phase 13: Teams Skill 🔲 PLANNED
 - [ ] Create Microbot.Skills.Teams project
 - [ ] Implement TeamsSkillMode enum (ReadOnly, Full)
 - [ ] Add TeamsSkillConfig to MicrobotConfig

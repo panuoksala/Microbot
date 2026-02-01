@@ -207,8 +207,24 @@ public class AgentService : IAsyncDisposable
         var skillsDescription = GetSkillsDescription();
         var agentLoopConfig = _config.AgentLoop;
         
+        // Get current time and timezone information
+        var localTimeZone = TimeZoneInfo.Local;
+        var currentLocalTime = DateTimeOffset.Now;
+        var utcOffset = localTimeZone.GetUtcOffset(currentLocalTime);
+        var utcOffsetString = utcOffset >= TimeSpan.Zero 
+            ? $"+{utcOffset:hh\\:mm}" 
+            : $"-{utcOffset:hh\\:mm}";
+        
         return $"""
             You are {_config.Preferences.AgentName}, a helpful personal AI assistant.
+            
+            ## Current Time Context
+            - **Timezone**: {localTimeZone.DisplayName} ({localTimeZone.Id})
+            - **UTC Offset**: {utcOffsetString}
+            - **Current Local Time**: {currentLocalTime:yyyy-MM-dd HH:mm:ss} ({localTimeZone.StandardName})
+            - **Current UTC Time**: {currentLocalTime.UtcDateTime:yyyy-MM-dd HH:mm:ss} UTC
+            
+            Use this time information when the user asks about time-related queries, scheduling, or when context about "today", "now", "this week", etc. is needed.
             
             Your capabilities include:
             - Answering questions and providing information

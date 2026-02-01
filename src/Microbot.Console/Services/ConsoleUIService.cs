@@ -18,6 +18,7 @@ public class ConsoleUIService
     private readonly Style _errorStyle = new(Color.Red);
     private readonly Style _warningStyle = new(Color.Yellow);
     private readonly Style _infoStyle = new(Color.Blue);
+    private readonly MarkdownRenderer _markdownRenderer = new();
 
     /// <summary>
     /// Displays the application header/banner.
@@ -157,26 +158,23 @@ public class ConsoleUIService
     }
 
     /// <summary>
-    /// Displays the AI's response.
+    /// Displays the AI's response with markdown formatting.
     /// </summary>
-    /// <param name="response">The response text.</param>
+    /// <param name="response">The response text (may contain markdown).</param>
     /// <param name="agentName">The name of the agent.</param>
     public void DisplayAgentResponse(string response, string agentName = "Microbot")
     {
-        var panel = new Panel(new Markup(Markup.Escape(response)))
-        {
-            Header = new PanelHeader($"[cyan]{agentName}[/]"),
-            Border = BoxBorder.Rounded,
-            Padding = new Padding(2, 1),
-            BorderStyle = new Style(Color.Cyan1)
-        };
+        AnsiConsole.MarkupLine($"[cyan]{agentName}[/] [grey]>[/]");
+        AnsiConsole.WriteLine();
         
-        AnsiConsole.Write(panel);
+        // Render markdown-formatted response
+        _markdownRenderer.Render(response);
+        
         AnsiConsole.WriteLine();
     }
 
     /// <summary>
-    /// Displays a streaming response character by character.
+    /// Displays a streaming response, collecting the full response and then rendering markdown.
     /// </summary>
     /// <param name="responseStream">The async enumerable of response chunks.</param>
     /// <param name="agentName">The name of the agent.</param>
@@ -186,14 +184,25 @@ public class ConsoleUIService
     {
         AnsiConsole.MarkupLine($"[cyan]{agentName}[/] [grey]>[/]");
         
-        await foreach (var chunk in responseStream)
-        {
-            // Use System.Console.Write to avoid Spectre.Console markup parsing
-            // This prevents crashes when AI responses contain JSON with curly braces
-            System.Console.Write(chunk);
-        }
+        // Collect the full response while showing a spinner
+        var fullResponse = new System.Text.StringBuilder();
+        
+        await AnsiConsole.Status()
+            .Spinner(Spinner.Known.Dots)
+            .SpinnerStyle(Style.Parse("cyan"))
+            .StartAsync("Thinking...", async ctx =>
+            {
+                await foreach (var chunk in responseStream)
+                {
+                    fullResponse.Append(chunk);
+                }
+            });
         
         AnsiConsole.WriteLine();
+        
+        // Render the complete response with markdown formatting
+        _markdownRenderer.Render(fullResponse.ToString());
+        
         AnsiConsole.WriteLine();
     }
 
