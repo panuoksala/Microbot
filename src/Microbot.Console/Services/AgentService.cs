@@ -6,11 +6,15 @@ using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.Agents;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
+using Microbot.Console.Filters;
+using Microbot.Core.Events;
 using Microbot.Core.Models;
 using Microbot.Skills;
+using AgentResponseItem = Microsoft.SemanticKernel.Agents.AgentResponseItem<Microsoft.SemanticKernel.StreamingChatMessageContent>;
 
 /// <summary>
 /// Service for managing the AI agent using Semantic Kernel.
+/// Implements agentic loop with safety mechanisms inspired by OpenClaw.
 /// </summary>
 public class AgentService : IAsyncDisposable
 {
@@ -22,7 +26,10 @@ public class AgentService : IAsyncDisposable
     private ChatCompletionAgent? _agent;
     private ChatHistory _chatHistory = [];
     private SkillManager? _skillManager;
+    private SafetyLimitFilter? _safetyFilter;
+    private TimeoutFilter? _timeoutFilter;
     private bool _disposed;
+    private int _requestCounter;
 
     /// <summary>
     /// Gets the current chat history.
@@ -33,6 +40,31 @@ public class AgentService : IAsyncDisposable
     /// Gets the skill manager.
     /// </summary>
     public SkillManager? SkillManager => _skillManager;
+
+    /// <summary>
+    /// Gets the safety filter for subscribing to lifecycle events.
+    /// </summary>
+    public IAgentLoopEvents? AgentLoopEvents => _safetyFilter;
+
+    /// <summary>
+    /// Event raised when a function call is about to be made.
+    /// </summary>
+    public event EventHandler<AgentFunctionInvokingEventArgs>? FunctionInvoking;
+
+    /// <summary>
+    /// Event raised when a function call has completed.
+    /// </summary>
+    public event EventHandler<AgentFunctionInvokedEventArgs>? FunctionInvoked;
+
+    /// <summary>
+    /// Event raised when a safety limit is reached.
+    /// </summary>
+    public event EventHandler<SafetyLimitReachedEventArgs>? SafetyLimitReached;
+
+    /// <summary>
+    /// Event raised when a function times out.
+    /// </summary>
+    public event EventHandler<FunctionTimeoutEventArgs>? FunctionTimedOut;
 
     /// <summary>
     /// Creates a new AgentService instance.
@@ -73,10 +105,42 @@ public class AgentService : IAsyncDisposable
 
         _kernel = builder.Build();
 
+        // Create and register safety filters
+        var agentLoopConfig = _config.AgentLoop;
+        
+        _safetyFilter = new SafetyLimitFilter(
+            maxIterations: agentLoopConfig.MaxIterations,
+            maxTotalFunctionCalls: agentLoopConfig.MaxTotalFunctionCalls);
+
+        _timeoutFilter = new TimeoutFilter(agentLoopConfig.FunctionTimeoutSeconds);
+
+        // Wire up events from filters to this service
+        _safetyFilter.FunctionInvoking += (s, e) => FunctionInvoking?.Invoke(this, e);
+        _safetyFilter.FunctionInvoked += (s, e) => FunctionInvoked?.Invoke(this, e);
+        _safetyFilter.SafetyLimitReached += (s, e) => SafetyLimitReached?.Invoke(this, e);
+        _timeoutFilter.FunctionTimedOut += (s, e) => FunctionTimedOut?.Invoke(this, e);
+
+        // Register filters with kernel
+        _kernel.AutoFunctionInvocationFilters.Add(_safetyFilter);
+        _kernel.AutoFunctionInvocationFilters.Add(_timeoutFilter);
+
+        _logger?.LogInformation(
+            "Safety filters registered: MaxIterations={MaxIterations}, MaxFunctionCalls={MaxFunctionCalls}, FunctionTimeout={FunctionTimeout}s, RuntimeTimeout={RuntimeTimeout}s",
+            agentLoopConfig.MaxIterations,
+            agentLoopConfig.MaxTotalFunctionCalls,
+            agentLoopConfig.FunctionTimeoutSeconds,
+            agentLoopConfig.RuntimeTimeoutSeconds);
+
         // Load and register skills
         _skillManager = new SkillManager(_config.Skills, _loggerFactory, _deviceCodeCallback);
         var plugins = await _skillManager.LoadAllSkillsAsync(cancellationToken);
         _skillManager.RegisterPluginsWithKernel(_kernel);
+
+        // Configure function choice behavior options
+        var functionChoiceOptions = new FunctionChoiceBehaviorOptions
+        {
+            AllowConcurrentInvocation = agentLoopConfig.AllowConcurrentInvocation
+        };
 
         // Create the chat completion agent
         _agent = new ChatCompletionAgent
@@ -87,11 +151,11 @@ public class AgentService : IAsyncDisposable
             Arguments = new KernelArguments(
                 new OpenAIPromptExecutionSettings
                 {
-                    FunctionChoiceBehavior = FunctionChoiceBehavior.Auto()
+                    FunctionChoiceBehavior = FunctionChoiceBehavior.Auto(options: functionChoiceOptions)
                 })
         };
 
-        _logger?.LogInformation("Agent initialized successfully");
+        _logger?.LogInformation("Agent initialized successfully with agentic loop safety mechanisms");
     }
 
     /// <summary>
@@ -141,6 +205,7 @@ public class AgentService : IAsyncDisposable
     private string GetSystemPrompt()
     {
         var skillsDescription = GetSkillsDescription();
+        var agentLoopConfig = _config.AgentLoop;
         
         return $"""
             You are {_config.Preferences.AgentName}, a helpful personal AI assistant.
@@ -155,6 +220,24 @@ public class AgentService : IAsyncDisposable
             - Use available tools when they can help accomplish the user's request
             - If you're unsure about something, say so
             - Respect user privacy and handle sensitive information carefully
+            
+            ## Execution Limits and Safety Guidelines
+            
+            You are operating within an agentic loop with the following safety limits:
+            - Maximum iterations per request: {agentLoopConfig.MaxIterations}
+            - Maximum total function calls per request: {agentLoopConfig.MaxTotalFunctionCalls}
+            - Function execution timeout: {agentLoopConfig.FunctionTimeoutSeconds} seconds
+            - Overall request timeout: {agentLoopConfig.RuntimeTimeoutSeconds} seconds
+            
+            To work efficiently within these limits:
+            1. **Plan before acting**: Think through the steps needed before making function calls
+            2. **Batch operations when possible**: Combine related operations to minimize function calls
+            3. **Avoid redundant calls**: Don't repeat the same function call with identical parameters
+            4. **Handle errors gracefully**: If a function fails, explain the issue rather than retrying indefinitely
+            5. **Provide partial results**: If you're approaching limits, summarize what you've accomplished
+            6. **Be direct**: Provide answers without unnecessary tool calls when you already have the information
+            
+            If you reach a safety limit, explain to the user what was accomplished and what remains.
             
             {skillsDescription}
             """;
@@ -197,6 +280,7 @@ public class AgentService : IAsyncDisposable
 
     /// <summary>
     /// Sends a message to the agent and gets a response.
+    /// Implements runtime timeout and safety tracking for the agentic loop.
     /// </summary>
     /// <param name="userMessage">The user's message.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -208,34 +292,74 @@ public class AgentService : IAsyncDisposable
             throw new InvalidOperationException("Agent not initialized. Call InitializeAsync first.");
         }
 
-        _logger?.LogDebug("User message: {Message}", userMessage);
-
-        // Add user message to history
-        _chatHistory.AddUserMessage(userMessage);
-
-        // Get response from agent
-        var response = new System.Text.StringBuilder();
+        // Generate unique session ID for this request
+        var sessionId = $"request-{Interlocked.Increment(ref _requestCounter)}";
         
-        await foreach (var message in _agent.InvokeAsync(_chatHistory, cancellationToken: cancellationToken))
+        _logger?.LogDebug("Starting request {SessionId}: {Message}", sessionId, userMessage);
+
+        // Start new request tracking in safety filter
+        _safetyFilter?.StartNewRequest(sessionId, userMessage);
+
+        // Create runtime timeout - this is the overall timeout for the entire request
+        using var runtimeTimeoutCts = new CancellationTokenSource(
+            TimeSpan.FromSeconds(_config.AgentLoop.RuntimeTimeoutSeconds));
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken, runtimeTimeoutCts.Token);
+
+        try
         {
-            var content = message.Message.Content;
-            if (content != null)
-            {
-                response.Append(content);
-            }
+            // Add user message to history
+            _chatHistory.AddUserMessage(userMessage);
+
+            // Get response from agent
+            var response = new System.Text.StringBuilder();
+            var iterationCount = 0;
             
-            // Add agent response to history
-            _chatHistory.Add(message.Message);
+            await foreach (var message in _agent.InvokeAsync(_chatHistory, cancellationToken: linkedCts.Token))
+            {
+                iterationCount++;
+                var content = message.Message.Content;
+                if (content != null)
+                {
+                    response.Append(content);
+                }
+                
+                // Add agent response to history
+                _chatHistory.Add(message.Message);
+            }
+
+            var responseText = response.ToString();
+            
+            // Signal completion to safety filter
+            _safetyFilter?.CompleteRequest(responseText, iterationCount);
+            
+            _logger?.LogDebug("Request {SessionId} completed. Response: {Response}", sessionId, responseText);
+
+            return responseText;
         }
-
-        var responseText = response.ToString();
-        _logger?.LogDebug("Agent response: {Response}", responseText);
-
-        return responseText;
+        catch (OperationCanceledException) when (runtimeTimeoutCts.IsCancellationRequested)
+        {
+            _logger?.LogWarning(
+                "Request {SessionId} timed out after {Timeout} seconds (runtime timeout)",
+                sessionId, _config.AgentLoop.RuntimeTimeoutSeconds);
+            
+            // Signal failure to safety filter
+            _safetyFilter?.FailRequest(
+                AgentLoopErrorType.RequestTimeout,
+                $"Runtime timeout after {_config.AgentLoop.RuntimeTimeoutSeconds} seconds",
+                0);
+            
+            // Add a message to history indicating timeout
+            var timeoutMessage = $"[Request timed out after {_config.AgentLoop.RuntimeTimeoutSeconds} seconds. The operation was taking too long to complete.]";
+            _chatHistory.AddAssistantMessage(timeoutMessage);
+            
+            return timeoutMessage;
+        }
     }
 
     /// <summary>
     /// Sends a message to the agent and streams the response.
+    /// Implements runtime timeout and safety tracking for the agentic loop.
     /// </summary>
     /// <param name="userMessage">The user's message.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -249,25 +373,99 @@ public class AgentService : IAsyncDisposable
             throw new InvalidOperationException("Agent not initialized. Call InitializeAsync first.");
         }
 
-        _logger?.LogDebug("User message (streaming): {Message}", userMessage);
+        // Generate unique session ID for this request
+        var sessionId = $"request-{Interlocked.Increment(ref _requestCounter)}";
+        
+        _logger?.LogDebug("Starting streaming request {SessionId}: {Message}", sessionId, userMessage);
+
+        // Start new request tracking in safety filter
+        _safetyFilter?.StartNewRequest(sessionId, userMessage);
+
+        // Create runtime timeout - this is the overall timeout for the entire request
+        using var runtimeTimeoutCts = new CancellationTokenSource(
+            TimeSpan.FromSeconds(_config.AgentLoop.RuntimeTimeoutSeconds));
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken, runtimeTimeoutCts.Token);
 
         // Add user message to history
         _chatHistory.AddUserMessage(userMessage);
 
         var fullResponse = new System.Text.StringBuilder();
+        var timedOut = false;
+        string? errorMessage = null;
+        var iterationCount = 0;
 
-        await foreach (var message in _agent.InvokeStreamingAsync(_chatHistory, cancellationToken: cancellationToken))
+        // We need to handle exceptions inside the async enumerable
+        IAsyncEnumerator<AgentResponseItem<StreamingChatMessageContent>>? enumerator = null;
+        
+        try
         {
-            var content = message.Message.Content;
-            if (content != null)
+            enumerator = _agent.InvokeStreamingAsync(_chatHistory, cancellationToken: linkedCts.Token)
+                .GetAsyncEnumerator(linkedCts.Token);
+
+            while (true)
             {
-                fullResponse.Append(content);
-                yield return content;
+                bool hasNext;
+                try
+                {
+                    hasNext = await enumerator.MoveNextAsync();
+                }
+                catch (OperationCanceledException) when (runtimeTimeoutCts.IsCancellationRequested)
+                {
+                    timedOut = true;
+                    errorMessage = $"\n\n[Request timed out after {_config.AgentLoop.RuntimeTimeoutSeconds} seconds]";
+                    break;
+                }
+
+                if (!hasNext)
+                    break;
+
+                iterationCount++;
+                var content = enumerator.Current.Message.Content;
+                if (content != null)
+                {
+                    fullResponse.Append(content);
+                    yield return content;
+                }
             }
+        }
+        finally
+        {
+            if (enumerator != null)
+            {
+                await enumerator.DisposeAsync();
+            }
+        }
+
+        // Yield error message if there was one
+        if (errorMessage != null)
+        {
+            fullResponse.Append(errorMessage);
+            yield return errorMessage;
         }
 
         // Add the complete response to history
         _chatHistory.AddAssistantMessage(fullResponse.ToString());
+
+        if (timedOut)
+        {
+            _logger?.LogWarning(
+                "Streaming request {SessionId} timed out after {Timeout} seconds",
+                sessionId, _config.AgentLoop.RuntimeTimeoutSeconds);
+            
+            // Signal failure to safety filter
+            _safetyFilter?.FailRequest(
+                AgentLoopErrorType.RequestTimeout,
+                $"Runtime timeout after {_config.AgentLoop.RuntimeTimeoutSeconds} seconds",
+                iterationCount);
+        }
+        else
+        {
+            _logger?.LogDebug("Streaming request {SessionId} completed successfully", sessionId);
+            
+            // Signal completion to safety filter
+            _safetyFilter?.CompleteRequest(fullResponse.ToString(), iterationCount);
+        }
     }
 
     /// <summary>

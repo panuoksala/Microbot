@@ -251,7 +251,44 @@ public class Program
             await _agentService.InitializeAsync(_cts.Token);
         });
 
+        // Wire up agent loop events for progress display (if enabled in config)
+        if (_config.AgentLoop.ShowFunctionCallProgress)
+        {
+            WireUpAgentLoopEvents();
+        }
+
         _ui.DisplaySuccess("Agent initialized successfully");
+        
+        // Display agent loop configuration
+        _ui.DisplayInfo($"Agent loop safety: max {_config.AgentLoop.MaxIterations} iterations, " +
+                       $"max {_config.AgentLoop.MaxTotalFunctionCalls} function calls, " +
+                       $"{_config.AgentLoop.RuntimeTimeoutSeconds}s timeout");
+    }
+
+    /// <summary>
+    /// Wires up agent loop events to display function call progress.
+    /// </summary>
+    private static void WireUpAgentLoopEvents()
+    {
+        _agentService.FunctionInvoking += (sender, e) =>
+        {
+            _ui.DisplayFunctionInvoking(e);
+        };
+
+        _agentService.FunctionInvoked += (sender, e) =>
+        {
+            _ui.DisplayFunctionInvoked(e);
+        };
+
+        _agentService.SafetyLimitReached += (sender, e) =>
+        {
+            _ui.DisplaySafetyLimitReached(e);
+        };
+
+        _agentService.FunctionTimedOut += (sender, e) =>
+        {
+            _ui.DisplayFunctionTimeout(e);
+        };
     }
 
     /// <summary>

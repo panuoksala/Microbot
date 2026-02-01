@@ -24,6 +24,11 @@ public class MicrobotConfig
     /// User preferences and settings.
     /// </summary>
     public UserPreferences Preferences { get; set; } = new();
+
+    /// <summary>
+    /// Agent loop configuration for safety mechanisms.
+    /// </summary>
+    public AgentLoopConfig AgentLoop { get; set; } = new();
 }
 
 /// <summary>
@@ -314,4 +319,76 @@ public class UserPreferences
     /// Whether to use streaming responses.
     /// </summary>
     public bool UseStreaming { get; set; } = true;
+}
+
+/// <summary>
+/// Configuration for the agentic loop safety mechanisms.
+/// Inspired by OpenClaw's agent loop architecture.
+/// </summary>
+public class AgentLoopConfig
+{
+    /// <summary>
+    /// Maximum number of LLM request iterations per user message.
+    /// Each iteration may include multiple function calls.
+    /// Default: 10
+    /// </summary>
+    public int MaxIterations { get; set; } = 10;
+
+    /// <summary>
+    /// Maximum total function calls per user message across all iterations.
+    /// Default: 50
+    /// </summary>
+    public int MaxTotalFunctionCalls { get; set; } = 50;
+
+    /// <summary>
+    /// Timeout in seconds for waiting on initial LLM response.
+    /// Similar to OpenClaw's agent.wait timeout.
+    /// Default: 30 seconds
+    /// </summary>
+    public int WaitTimeoutSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// Total runtime timeout in seconds for the entire agent execution.
+    /// Similar to OpenClaw's agents.defaults.timeoutSeconds.
+    /// Default: 600 seconds (10 minutes)
+    /// </summary>
+    public int RuntimeTimeoutSeconds { get; set; } = 600;
+
+    /// <summary>
+    /// Timeout in seconds for individual function calls.
+    /// Default: 30
+    /// </summary>
+    public int FunctionTimeoutSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// Whether to allow concurrent function invocation when the model
+    /// requests multiple functions in parallel.
+    /// Default: false (sequential for safety)
+    /// </summary>
+    public bool AllowConcurrentInvocation { get; set; } = false;
+
+    /// <summary>
+    /// Whether to show function call progress in the console.
+    /// Default: true
+    /// </summary>
+    public bool ShowFunctionCallProgress { get; set; } = true;
+
+    /// <summary>
+    /// Whether to enable lifecycle event emission for observability.
+    /// Default: true
+    /// </summary>
+    public bool EnableLifecycleEvents { get; set; } = true;
+
+    /// <summary>
+    /// Whether to enable automatic compaction of chat history
+    /// when it exceeds a certain length.
+    /// Default: false
+    /// </summary>
+    public bool EnableAutoCompaction { get; set; } = false;
+
+    /// <summary>
+    /// Maximum chat history messages before compaction is triggered.
+    /// Default: 100
+    /// </summary>
+    public int CompactionThreshold { get; set; } = 100;
 }

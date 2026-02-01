@@ -38,15 +38,19 @@ Microbot/
 ├── plans/                       # Architecture and implementation plans
 │   ├── microbot-architecture.md # High-level architecture
 │   ├── implementation-plan.md   # Detailed implementation guide
+│   ├── agentic-loop-implementation.md # Agentic loop safety mechanisms
 │   └── outlook-skill-implementation.md # Outlook skill implementation details
 ├── skills/                      # Runtime skill folders
 │   ├── mcp/                     # MCP server configurations
 │   └── nuget/                   # NuGet package DLLs
 └── src/
     ├── Microbot.Console/        # Main console application
+    │   └── Filters/             # Semantic Kernel filters (safety, timeout)
     ├── Microbot.Core/           # Core domain logic and models
+    │   └── Events/              # Lifecycle events for agent loop
     ├── Microbot.Skills/         # Skill loading infrastructure
     ├── Microbot.Skills.Outlook/ # Outlook skill (Microsoft Graph integration)
+    ├── Microbot.Skills.Teams/   # Teams skill (Microsoft Graph integration)
     ├── Microbot.ServiceDefaults/# Aspire service defaults
     └── Microbot.AppHost/        # Aspire AppHost
 ```
@@ -56,8 +60,11 @@ Microbot/
 | File | Purpose |
 |------|---------|
 | `src/Microbot.Console/Program.cs` | Application entry point and setup wizard |
-| `src/Microbot.Console/Services/AgentService.cs` | AI agent orchestration and provider configuration |
-| `src/Microbot.Core/Models/MicrobotConfig.cs` | Configuration models |
+| `src/Microbot.Console/Services/AgentService.cs` | AI agent orchestration with agentic loop safety |
+| `src/Microbot.Console/Filters/SafetyLimitFilter.cs` | Iteration and function call limiting |
+| `src/Microbot.Console/Filters/TimeoutFilter.cs` | Function timeout enforcement |
+| `src/Microbot.Core/Models/MicrobotConfig.cs` | Configuration models including AgentLoopConfig |
+| `src/Microbot.Core/Events/AgentLoopEvents.cs` | Lifecycle events for agent loop monitoring |
 | `src/Microbot.Skills/SkillManager.cs` | Skill loading and management |
 
 ## Current Implementation Status
@@ -80,6 +87,15 @@ Microbot/
   - Calendar management (create, update, delete events)
   - Permission modes: ReadOnly, ReadWriteCalendar, Full
   - Authentication: Device Code and Interactive Browser flows
+- ✅ Agentic loop with safety mechanisms
+  - Iteration limiting (max 10 iterations per request)
+  - Function call limiting (max 50 calls per request)
+  - Runtime timeout (600 seconds default)
+  - Function timeout (30 seconds per function)
+  - Lifecycle events for monitoring
+  - Progress display in console
+  - System prompt safety guidelines
+  - See plans/agentic-loop-implementation.md for details
 - 🔲 Teams skill with Microsoft Graph integration (planned)
   - Multi-tenant support (home + guest tenants)
   - Channel messages (read, send, reply)

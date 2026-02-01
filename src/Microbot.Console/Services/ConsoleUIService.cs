@@ -1,6 +1,8 @@
 namespace Microbot.Console.Services;
 
 using Spectre.Console;
+using Microbot.Console.Filters;
+using Microbot.Core.Events;
 using Microbot.Core.Models;
 using Microbot.Skills;
 using System.Collections.Generic;
@@ -421,4 +423,88 @@ public class ConsoleUIService
         AnsiConsole.Write(new Rule("[cyan]Goodbye![/]").RuleStyle("grey"));
         AnsiConsole.MarkupLine("[grey]Thank you for using Microbot.[/]");
     }
+
+    #region Agent Loop Progress Display
+
+    /// <summary>
+    /// Displays a function call starting notification.
+    /// </summary>
+    /// <param name="e">The function invoking event args.</param>
+    public void DisplayFunctionInvoking(AgentFunctionInvokingEventArgs e)
+    {
+        var functionDisplay = $"{e.PluginName}.{e.FunctionName}";
+        var iterationInfo = $"[grey](iteration {e.IterationIndex + 1}, call {e.FunctionIndex + 1}/{e.TotalFunctionsInIteration})[/]";
+        
+        AnsiConsole.MarkupLine($"  [blue]⚡[/] Calling [cyan]{Markup.Escape(functionDisplay)}[/] {iterationInfo}");
+    }
+
+    /// <summary>
+    /// Displays a function call completion notification.
+    /// </summary>
+    /// <param name="e">The function invoked event args.</param>
+    public void DisplayFunctionInvoked(AgentFunctionInvokedEventArgs e)
+    {
+        var functionDisplay = $"{e.PluginName}.{e.FunctionName}";
+        var durationMs = e.Duration.TotalMilliseconds;
+        
+        if (e.Success)
+        {
+            AnsiConsole.MarkupLine($"  [green]✓[/] [grey]{Markup.Escape(functionDisplay)} completed in {durationMs:F0}ms[/]");
+        }
+        else
+        {
+            AnsiConsole.MarkupLine($"  [red]✗[/] [grey]{Markup.Escape(functionDisplay)} failed: {Markup.Escape(e.ErrorMessage ?? "Unknown error")}[/]");
+        }
+    }
+
+    /// <summary>
+    /// Displays a safety limit reached warning.
+    /// </summary>
+    /// <param name="e">The safety limit reached event args.</param>
+    public void DisplaySafetyLimitReached(SafetyLimitReachedEventArgs e)
+    {
+        var limitType = e.LimitType switch
+        {
+            SafetyLimitType.MaxIterations => "maximum iterations",
+            SafetyLimitType.MaxFunctionCalls => "maximum function calls",
+            SafetyLimitType.RequestTimeout => "request timeout",
+            SafetyLimitType.FunctionTimeout => "function timeout",
+            _ => "safety limit"
+        };
+        
+        AnsiConsole.MarkupLine($"  [yellow]⚠[/] [yellow]Safety limit reached: {limitType} ({e.CurrentValue}/{e.MaxValue})[/]");
+    }
+
+    /// <summary>
+    /// Displays a function timeout warning.
+    /// </summary>
+    /// <param name="e">The function timeout event args.</param>
+    public void DisplayFunctionTimeout(FunctionTimeoutEventArgs e)
+    {
+        AnsiConsole.MarkupLine($"  [yellow]⏱[/] [yellow]{Markup.Escape(e.FunctionName)} timed out after {e.Timeout.TotalSeconds:F0}s[/]");
+    }
+
+    /// <summary>
+    /// Displays an agent loop warning message.
+    /// </summary>
+    /// <param name="message">The warning message.</param>
+    public void DisplayAgentWarning(string message)
+    {
+        AnsiConsole.MarkupLine($"  [yellow]⚠[/] [yellow]{Markup.Escape(message)}[/]");
+    }
+
+    /// <summary>
+    /// Displays agent loop statistics after completion.
+    /// </summary>
+    /// <param name="e">The loop completed event args.</param>
+    public void DisplayAgentLoopStats(AgentLoopCompletedEventArgs e)
+    {
+        if (e.TotalFunctionCalls > 0)
+        {
+            AnsiConsole.MarkupLine(
+                $"  [grey]Completed: {e.TotalIterations} iteration(s), {e.TotalFunctionCalls} function call(s) in {e.TotalDuration.TotalSeconds:F1}s[/]");
+        }
+    }
+
+    #endregion
 }
