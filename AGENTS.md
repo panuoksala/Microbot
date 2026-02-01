@@ -39,7 +39,10 @@ Microbot/
 │   ├── microbot-architecture.md # High-level architecture
 │   ├── implementation-plan.md   # Detailed implementation guide
 │   ├── agentic-loop-implementation.md # Agentic loop safety mechanisms
+│   ├── memory-system-implementation.md # Long-term memory system
 │   └── outlook-skill-implementation.md # Outlook skill implementation details
+├── memory/                      # Memory storage folder
+│   └── sessions/                # Session transcripts
 ├── skills/                      # Runtime skill folders
 │   ├── mcp/                     # MCP server configurations
 │   └── nuget/                   # NuGet package DLLs
@@ -49,6 +52,14 @@ Microbot/
     │   └── Services/            # Console services (UI, Agent, Markdown rendering)
     ├── Microbot.Core/           # Core domain logic and models
     │   └── Events/              # Lifecycle events for agent loop
+    ├── Microbot.Memory/         # Long-term memory system
+    │   ├── Chunking/            # Markdown-aware text chunking
+    │   ├── Data/                # EF Core database context and entities
+    │   ├── Embeddings/          # Embedding providers (OpenAI, Azure, Ollama)
+    │   ├── Search/              # Vector and hybrid search
+    │   ├── Sessions/            # Session transcript management
+    │   ├── Skills/              # Memory Semantic Kernel plugin
+    │   └── Sync/                # File watching and synchronization
     ├── Microbot.Skills/         # Skill loading infrastructure
     ├── Microbot.Skills.Outlook/ # Outlook skill (Microsoft Graph integration)
     ├── Microbot.Skills.Slack/   # Slack skill (SlackNet integration)
@@ -115,6 +126,16 @@ Microbot/
   - Permission modes: ReadOnly, Full
   - Bot Token authentication (xoxb-)
   - See plans/slack-skill-implementation.md for details
+- ✅ Long-term memory system
+  - SQLite database with EF Core
+  - Markdown-aware text chunking (ML.Tokenizers with cl100k_base)
+  - Multiple embedding providers (OpenAI, Azure OpenAI, Ollama)
+  - Hybrid search (vector similarity + FTS5 full-text search)
+  - Session transcript management
+  - File watching and automatic sync
+  - Memory Semantic Kernel plugin
+  - Console commands (/memory status, sync, search, sessions, save)
+  - See plans/memory-system-implementation.md for details
 - 🔲 Teams skill with Microsoft Graph integration (planned)
   - Multi-tenant support (home + guest tenants)
   - Channel messages (read, send, reply)

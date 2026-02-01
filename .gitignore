@@ -423,3 +423,5 @@ stderr.txt
 stdout.txt
 temp-calc/package-lock.json
 temp-calc/package.json
+memory/memory.db
+*.json

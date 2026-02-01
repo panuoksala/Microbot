@@ -2,6 +2,8 @@
 using Microbot.Console.Services;
 using Microbot.Core.Configuration;
 using Microbot.Core.Models;
+using Microbot.Memory;
+using Microbot.Memory.Interfaces;
 using Spectre.Console;
 
 namespace Microbot.Console;
@@ -375,6 +377,10 @@ public class Program
                 await HandleMcpCommandAsync(parts);
                 break;
 
+            case "/memory":
+                await HandleMemoryCommandAsync(parts);
+                break;
+
             case "/clear":
                 _ui.DisplayHeader();
                 _agentService.ClearHistory();
@@ -603,6 +609,424 @@ public class Program
         AnsiConsole.Write(panel);
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[grey]The MCP Registry is at https://registry.modelcontextprotocol.io[/]");
+        AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// Handles /memory subcommands for memory system operations.
+    /// </summary>
+    /// <param name="parts">The command parts.</param>
+    private static async Task HandleMemoryCommandAsync(string[] parts)
+    {
+        if (parts.Length < 2)
+        {
+            DisplayMemoryHelp();
+            return;
+        }
+
+        var subCommand = parts[1].ToLowerInvariant();
+
+        // Enable/disable commands work even when memory is not initialized
+        switch (subCommand)
+        {
+            case "enable":
+                await EnableMemoryAsync();
+                return;
+
+            case "disable":
+                await DisableMemoryAsync();
+                return;
+        }
+
+        // All other commands require memory to be initialized
+        if (_agentService.MemoryManager == null)
+        {
+            if (_config.Memory.Enabled)
+            {
+                // Memory is enabled in config but failed to initialize
+                _ui.DisplayError("Memory system failed to initialize.");
+                if (!string.IsNullOrEmpty(_agentService.MemoryInitializationError))
+                {
+                    _ui.DisplayError($"Error: {_agentService.MemoryInitializationError}");
+                }
+                _ui.DisplayInfo("Check your embedding configuration in Microbot.config.");
+                _ui.DisplayInfo("Make sure the embedding model is deployed and accessible.");
+            }
+            else
+            {
+                _ui.DisplayWarning("Memory system is not enabled. Use '/memory enable' to enable it with default settings.");
+            }
+            return;
+        }
+
+        switch (subCommand)
+        {
+            case "status":
+                DisplayMemoryStatus();
+                break;
+
+            case "sync":
+                await SyncMemoryAsync(parts);
+                break;
+
+            case "search":
+                if (parts.Length < 3)
+                {
+                    _ui.DisplayWarning("Usage: /memory search <query>");
+                    _ui.DisplayInfo("Example: /memory search what did we discuss about the project");
+                    return;
+                }
+                var query = string.Join(" ", parts.Skip(2));
+                await SearchMemoryAsync(query);
+                break;
+
+            case "sessions":
+                await ListSessionsAsync();
+                break;
+
+            case "save":
+                await SaveCurrentSessionAsync();
+                break;
+
+            case "help":
+            default:
+                DisplayMemoryHelp();
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Displays the memory system status.
+    /// </summary>
+    private static void DisplayMemoryStatus()
+    {
+        var status = _agentService.MemoryManager!.GetStatus();
+
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .AddColumn("[cyan]Metric[/]")
+            .AddColumn("[cyan]Value[/]");
+
+        table.AddRow("Total Files Indexed", status.TotalFiles.ToString());
+        table.AddRow("Total Text Chunks", status.TotalChunks.ToString());
+        table.AddRow("Memory Files", status.MemoryFiles.ToString());
+        table.AddRow("Session Files", status.SessionFiles.ToString());
+        table.AddRow("Pending Changes", status.IsDirty ? "[yellow]Yes[/]" : "[green]No[/]");
+        
+        if (status.LastSyncAt.HasValue)
+        {
+            table.AddRow("Last Sync", status.LastSyncAt.Value.ToString("yyyy-MM-dd HH:mm:ss") + " UTC");
+        }
+        else
+        {
+            table.AddRow("Last Sync", "[grey]Never[/]");
+        }
+
+        if (!string.IsNullOrEmpty(status.EmbeddingModel))
+        {
+            table.AddRow("Embedding Model", Markup.Escape(status.EmbeddingModel));
+        }
+
+        var panel = new Panel(table)
+        {
+            Header = new PanelHeader("[cyan]Memory System Status[/]"),
+            Border = BoxBorder.Rounded
+        };
+
+        AnsiConsole.Write(panel);
+        AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// Syncs the memory index.
+    /// </summary>
+    private static async Task SyncMemoryAsync(string[] parts)
+    {
+        var force = parts.Length > 2 && parts[2].ToLowerInvariant() == "--force";
+
+        var progress = new Progress<SyncProgress>(p =>
+        {
+            // Progress is reported but we're using a spinner
+        });
+
+        SyncProgress? finalProgress = null;
+        await _ui.WithSpinnerAsync("Syncing memory index...", async () =>
+        {
+            var options = new SyncOptions
+            {
+                Reason = "User requested sync",
+                Force = force
+            };
+            
+            var progressReporter = new Progress<SyncProgress>(p => finalProgress = p);
+            await _agentService.MemoryManager!.SyncAsync(options, progressReporter, _cts.Token);
+        });
+
+        if (finalProgress != null)
+        {
+            _ui.DisplaySuccess($"Memory sync complete: {finalProgress.FilesProcessed} files processed, {finalProgress.ChunksCreated} chunks created.");
+        }
+        else
+        {
+            _ui.DisplaySuccess("Memory sync complete.");
+        }
+    }
+
+    /// <summary>
+    /// Searches memory for relevant information.
+    /// </summary>
+    private static async Task SearchMemoryAsync(string query)
+    {
+        IReadOnlyList<MemorySearchResult>? results = null;
+        
+        await _ui.WithSpinnerAsync("Searching memory...", async () =>
+        {
+            var options = new MemorySearchOptions
+            {
+                MaxResults = 10,
+                MinScore = 0.5f,
+                IncludeSessions = true,
+                IncludeMemoryFiles = true
+            };
+            results = await _agentService.MemoryManager!.SearchAsync(query, options, _cts.Token);
+        });
+
+        if (results == null || results.Count == 0)
+        {
+            _ui.DisplayInfo("No relevant information found in memory.");
+            return;
+        }
+
+        AnsiConsole.MarkupLine($"[cyan]Found {results.Count} relevant memory entries:[/]");
+        AnsiConsole.WriteLine();
+
+        foreach (var result in results)
+        {
+            var sourceLabel = result.Source == MemorySource.Sessions ? "[blue]Session[/]" : "[green]Memory[/]";
+            var score = $"[grey](Score: {result.Score:F2})[/]";
+            
+            AnsiConsole.MarkupLine($"{sourceLabel} [white]{Markup.Escape(result.Path)}[/] {score}");
+            AnsiConsole.MarkupLine($"[grey]Lines {result.StartLine}-{result.EndLine}[/]");
+            
+            var panel = new Panel(Markup.Escape(result.Snippet.Length > 500
+                ? result.Snippet[..500] + "..."
+                : result.Snippet))
+            {
+                Border = BoxBorder.Rounded,
+                Padding = new Padding(1, 0)
+            };
+            AnsiConsole.Write(panel);
+            AnsiConsole.WriteLine();
+        }
+    }
+
+    /// <summary>
+    /// Lists recent sessions.
+    /// </summary>
+    private static async Task ListSessionsAsync()
+    {
+        IReadOnlyList<SessionSummary>? sessions = null;
+        
+        await _ui.WithSpinnerAsync("Loading sessions...", async () =>
+        {
+            sessions = await _agentService.MemoryManager!.ListSessionsAsync(_cts.Token);
+        });
+
+        if (sessions == null || sessions.Count == 0)
+        {
+            _ui.DisplayInfo("No sessions found in memory.");
+            return;
+        }
+
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .AddColumn("[cyan]Session[/]")
+            .AddColumn("[cyan]Started[/]")
+            .AddColumn("[cyan]Messages[/]")
+            .AddColumn("[cyan]Title/Summary[/]");
+
+        foreach (var session in sessions.Take(20))
+        {
+            var title = !string.IsNullOrEmpty(session.Title)
+                ? session.Title
+                : (!string.IsNullOrEmpty(session.Summary)
+                    ? (session.Summary.Length > 50 ? session.Summary[..50] + "..." : session.Summary)
+                    : "[grey]No title[/]");
+            
+            table.AddRow(
+                Markup.Escape(session.SessionKey),
+                session.StartedAt.ToString("yyyy-MM-dd HH:mm"),
+                session.MessageCount.ToString(),
+                Markup.Escape(title));
+        }
+
+        var panel = new Panel(table)
+        {
+            Header = new PanelHeader($"[cyan]Recent Sessions ({Math.Min(sessions.Count, 20)} of {sessions.Count})[/]"),
+            Border = BoxBorder.Rounded
+        };
+
+        AnsiConsole.Write(panel);
+        AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// Saves the current session to memory.
+    /// </summary>
+    private static async Task SaveCurrentSessionAsync()
+    {
+        await _ui.WithSpinnerAsync("Saving current session...", async () =>
+        {
+            await _agentService.SaveCurrentSessionAsync(_cts.Token);
+        });
+        _ui.DisplaySuccess("Current session saved to memory.");
+    }
+
+    /// <summary>
+    /// Enables the memory system with default configuration.
+    /// </summary>
+    private static async Task EnableMemoryAsync()
+    {
+        if (_config.Memory.Enabled)
+        {
+            _ui.DisplayInfo("Memory system is already enabled.");
+            return;
+        }
+
+        // Set default values based on current AI provider
+        _config.Memory.Enabled = true;
+        _config.Memory.DatabasePath = "./memory/microbot-memory.db";
+        _config.Memory.MemoryFolder = "./memory";
+        _config.Memory.SessionsFolder = "./memory/sessions";
+
+        // Configure embedding provider based on current AI provider
+        _config.Memory.Embedding.Provider = _config.AiProvider.Provider;
+        _config.Memory.Embedding.Endpoint = _config.AiProvider.Endpoint;
+        _config.Memory.Embedding.ApiKey = _config.AiProvider.ApiKey;
+        
+        // Set default embedding model based on provider
+        _config.Memory.Embedding.ModelId = _config.AiProvider.Provider switch
+        {
+            "OpenAI" => "text-embedding-3-small",
+            "AzureOpenAI" => "text-embedding-3-small",
+            "Ollama" => "nomic-embed-text",
+            _ => "text-embedding-3-small"
+        };
+
+        // Set default chunking options
+        _config.Memory.Chunking.MaxTokens = 512;
+        _config.Memory.Chunking.OverlapTokens = 50;
+        _config.Memory.Chunking.MarkdownAware = true;
+
+        // Set default search options
+        _config.Memory.Search.MaxResults = 10;
+        _config.Memory.Search.MinScore = 0.5f;
+        _config.Memory.Search.VectorWeight = 0.7f;
+        _config.Memory.Search.TextWeight = 0.3f;
+
+        // Set default sync options
+        _config.Memory.Sync.EnableFileWatching = true;
+        _config.Memory.Sync.DebounceMs = 1000;
+
+        // Save configuration
+        await _configService.SaveConfigurationAsync(_config);
+        _ui.DisplaySuccess("Memory system enabled with default configuration.");
+        _ui.DisplayInfo("Configuration saved to Microbot.config.");
+        
+        // Display the configuration
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .AddColumn("[cyan]Setting[/]")
+            .AddColumn("[cyan]Value[/]");
+
+        table.AddRow("Database Path", Markup.Escape(_config.Memory.DatabasePath));
+        table.AddRow("Memory Folder", Markup.Escape(_config.Memory.MemoryFolder));
+        table.AddRow("Sessions Folder", Markup.Escape(_config.Memory.SessionsFolder));
+        table.AddRow("Embedding Provider", Markup.Escape(_config.Memory.Embedding.Provider));
+        table.AddRow("Embedding Model", Markup.Escape(_config.Memory.Embedding.ModelId));
+        table.AddRow("Chunk Size", $"{_config.Memory.Chunking.MaxTokens} tokens");
+        table.AddRow("File Watching", _config.Memory.Sync.EnableFileWatching ? "Enabled" : "Disabled");
+
+        var panel = new Panel(table)
+        {
+            Header = new PanelHeader("[cyan]Memory Configuration[/]"),
+            Border = BoxBorder.Rounded
+        };
+
+        AnsiConsole.Write(panel);
+        AnsiConsole.WriteLine();
+
+        // Prompt to restart
+        _ui.DisplayWarning("Please restart Microbot for the memory system to initialize.");
+    }
+
+    /// <summary>
+    /// Disables the memory system.
+    /// </summary>
+    private static async Task DisableMemoryAsync()
+    {
+        if (!_config.Memory.Enabled)
+        {
+            _ui.DisplayInfo("Memory system is already disabled.");
+            return;
+        }
+
+        _config.Memory.Enabled = false;
+
+        // Save configuration
+        await _configService.SaveConfigurationAsync(_config);
+        _ui.DisplaySuccess("Memory system disabled.");
+        _ui.DisplayInfo("Configuration saved to Microbot.config.");
+        _ui.DisplayInfo("Note: Existing memory data is preserved and will be available when re-enabled.");
+    }
+
+    /// <summary>
+    /// Displays help for /memory commands.
+    /// </summary>
+    private static void DisplayMemoryHelp()
+    {
+        var table = new Table()
+            .Border(TableBorder.None)
+            .HideHeaders()
+            .AddColumn("Command")
+            .AddColumn("Description");
+
+        table.AddRow("[cyan]/memory enable[/]", "Enable memory system with default configuration");
+        table.AddRow("[cyan]/memory disable[/]", "Disable memory system (preserves data)");
+        table.AddRow("[cyan]/memory status[/]", "Show memory system status (files, chunks, last sync)");
+        table.AddRow("[cyan]/memory sync[/]", "Sync memory index with source files");
+        table.AddRow("[cyan]/memory sync --force[/]", "Force full re-index of all files");
+        table.AddRow("[cyan]/memory search <query>[/]", "Search memory for relevant information");
+        table.AddRow("[cyan]/memory sessions[/]", "List recent conversation sessions");
+        table.AddRow("[cyan]/memory save[/]", "Save current session to memory");
+
+        var panel = new Panel(table)
+        {
+            Header = new PanelHeader("[cyan]Memory Commands[/]"),
+            Border = BoxBorder.Rounded,
+            Padding = new Padding(2, 1)
+        };
+
+        AnsiConsole.Write(panel);
+        AnsiConsole.WriteLine();
+        
+        var memoryEnabled = _agentService.MemoryManager != null;
+        if (memoryEnabled)
+        {
+            AnsiConsole.MarkupLine("[green]Memory system is enabled and running.[/]");
+        }
+        else if (_config.Memory.Enabled)
+        {
+            AnsiConsole.MarkupLine("[red]Memory system is enabled but failed to initialize.[/]");
+            if (!string.IsNullOrEmpty(_agentService.MemoryInitializationError))
+            {
+                AnsiConsole.MarkupLine($"[red]Error: {Markup.Escape(_agentService.MemoryInitializationError)}[/]");
+            }
+        }
+        else
+        {
+            AnsiConsole.MarkupLine("[yellow]Memory system is disabled. Use '/memory enable' to enable it.[/]");
+        }
         AnsiConsole.WriteLine();
     }
 

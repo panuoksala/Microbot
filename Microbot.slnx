@@ -3,6 +3,7 @@
     <Project Path="src/Microbot.AppHost/Microbot.AppHost.csproj" />
     <Project Path="src/Microbot.Console/Microbot.Console.csproj" />
     <Project Path="src/Microbot.Core/Microbot.Core.csproj" />
+    <Project Path="src/Microbot.Memory/Microbot.Memory.csproj" />
     <Project Path="src/Microbot.ServiceDefaults/Microbot.ServiceDefaults.csproj" />
     <Project Path="src/Microbot.Skills.Outlook/Microbot.Skills.Outlook.csproj" />
     <Project Path="src/Microbot.Skills.Slack/Microbot.Skills.Slack.csproj" />

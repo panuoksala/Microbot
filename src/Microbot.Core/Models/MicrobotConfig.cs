@@ -29,6 +29,11 @@ public class MicrobotConfig
     /// Agent loop configuration for safety mechanisms.
     /// </summary>
     public AgentLoopConfig AgentLoop { get; set; } = new();
+
+    /// <summary>
+    /// Long-term memory system configuration.
+    /// </summary>
+    public MemoryConfig Memory { get; set; } = new();
 }
 
 /// <summary>
@@ -428,4 +433,175 @@ public class AgentLoopConfig
     /// Default: 100
     /// </summary>
     public int CompactionThreshold { get; set; } = 100;
+}
+
+/// <summary>
+/// Configuration for the long-term memory system.
+/// </summary>
+public class MemoryConfig
+{
+    /// <summary>
+    /// Whether the memory system is enabled.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Path to the SQLite database file.
+    /// </summary>
+    public string DatabasePath { get; set; } = "./memory/microbot-memory.db";
+
+    /// <summary>
+    /// Path to the memory folder for MEMORY.md files.
+    /// </summary>
+    public string MemoryFolder { get; set; } = "./memory";
+
+    /// <summary>
+    /// Path to store session transcripts.
+    /// </summary>
+    public string SessionsFolder { get; set; } = "./memory/sessions";
+
+    /// <summary>
+    /// Embedding provider configuration.
+    /// </summary>
+    public EmbeddingConfig Embedding { get; set; } = new();
+
+    /// <summary>
+    /// Chunking configuration.
+    /// </summary>
+    public ChunkingConfig Chunking { get; set; } = new();
+
+    /// <summary>
+    /// Search configuration.
+    /// </summary>
+    public MemorySearchConfig Search { get; set; } = new();
+
+    /// <summary>
+    /// Sync configuration.
+    /// </summary>
+    public MemorySyncConfig Sync { get; set; } = new();
+}
+
+/// <summary>
+/// Configuration for embedding generation.
+/// </summary>
+public class EmbeddingConfig
+{
+    /// <summary>
+    /// Embedding provider: "OpenAI", "AzureOpenAI", "Ollama".
+    /// If not specified, uses the same provider as the AI provider.
+    /// </summary>
+    public string? Provider { get; set; }
+
+    /// <summary>
+    /// Embedding model ID.
+    /// </summary>
+    public string ModelId { get; set; } = "text-embedding-3-small";
+
+    /// <summary>
+    /// Embedding dimensions (for models that support it).
+    /// </summary>
+    public int? Dimensions { get; set; }
+
+    /// <summary>
+    /// API endpoint (for Azure OpenAI or Ollama).
+    /// </summary>
+    public string? Endpoint { get; set; }
+
+    /// <summary>
+    /// API key (if different from main AI provider).
+    /// </summary>
+    public string? ApiKey { get; set; }
+}
+
+/// <summary>
+/// Configuration for text chunking.
+/// </summary>
+public class ChunkingConfig
+{
+    /// <summary>
+    /// Maximum tokens per chunk.
+    /// </summary>
+    public int MaxTokens { get; set; } = 512;
+
+    /// <summary>
+    /// Overlap tokens between chunks.
+    /// </summary>
+    public int OverlapTokens { get; set; } = 50;
+
+    /// <summary>
+    /// Whether to use markdown-aware chunking.
+    /// </summary>
+    public bool MarkdownAware { get; set; } = true;
+}
+
+/// <summary>
+/// Configuration for memory search.
+/// </summary>
+public class MemorySearchConfig
+{
+    /// <summary>
+    /// Maximum results to return from search.
+    /// </summary>
+    public int MaxResults { get; set; } = 10;
+
+    /// <summary>
+    /// Minimum similarity score (0.0 to 1.0).
+    /// </summary>
+    public float MinScore { get; set; } = 0.5f;
+
+    /// <summary>
+    /// Weight for vector search results (0.0 to 1.0).
+    /// </summary>
+    public float VectorWeight { get; set; } = 0.7f;
+
+    /// <summary>
+    /// Weight for full-text search results (0.0 to 1.0).
+    /// </summary>
+    public float TextWeight { get; set; } = 0.3f;
+
+    /// <summary>
+    /// Whether to include session transcripts in search.
+    /// </summary>
+    public bool IncludeSessions { get; set; } = true;
+
+    /// <summary>
+    /// Whether to include memory files in search.
+    /// </summary>
+    public bool IncludeMemoryFiles { get; set; } = true;
+}
+
+/// <summary>
+/// Configuration for memory synchronization.
+/// </summary>
+public class MemorySyncConfig
+{
+    /// <summary>
+    /// Whether to enable file watching for automatic sync.
+    /// </summary>
+    public bool EnableFileWatching { get; set; } = true;
+
+    /// <summary>
+    /// Debounce interval in milliseconds for file changes.
+    /// </summary>
+    public int DebounceMs { get; set; } = 1000;
+
+    /// <summary>
+    /// Interval in seconds for periodic sync.
+    /// </summary>
+    public int SyncIntervalSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// Whether to sync sessions automatically.
+    /// </summary>
+    public bool AutoSyncSessions { get; set; } = true;
+
+    /// <summary>
+    /// Minimum bytes changed before session sync.
+    /// </summary>
+    public int SessionSyncBytesThreshold { get; set; } = 1024;
+
+    /// <summary>
+    /// Minimum messages added before session sync.
+    /// </summary>
+    public int SessionSyncMessagesThreshold { get; set; } = 5;
 }

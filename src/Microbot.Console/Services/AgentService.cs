@@ -9,6 +9,11 @@ using Microsoft.SemanticKernel.Connectors.OpenAI;
 using Microbot.Console.Filters;
 using Microbot.Core.Events;
 using Microbot.Core.Models;
+using Microbot.Memory;
+using Microbot.Memory.Interfaces;
+using Microbot.Memory.Sessions;
+using Microbot.Memory.Skills;
+using Microbot.Memory.Sync;
 using Microbot.Skills;
 using AgentResponseItem = Microsoft.SemanticKernel.Agents.AgentResponseItem<Microsoft.SemanticKernel.StreamingChatMessageContent>;
 
@@ -28,6 +33,10 @@ public class AgentService : IAsyncDisposable
     private SkillManager? _skillManager;
     private SafetyLimitFilter? _safetyFilter;
     private TimeoutFilter? _timeoutFilter;
+    private MemoryManager? _memoryManager;
+    private MemorySyncService? _memorySyncService;
+    private SessionTranscript? _currentSession;
+    private string? _currentSessionKey;
     private bool _disposed;
     private int _requestCounter;
 
@@ -40,6 +49,11 @@ public class AgentService : IAsyncDisposable
     /// Gets the skill manager.
     /// </summary>
     public SkillManager? SkillManager => _skillManager;
+
+    /// <summary>
+    /// Gets the memory manager.
+    /// </summary>
+    public IMemoryManager? MemoryManager => _memoryManager;
 
     /// <summary>
     /// Gets the safety filter for subscribing to lifecycle events.
@@ -136,6 +150,9 @@ public class AgentService : IAsyncDisposable
         var plugins = await _skillManager.LoadAllSkillsAsync(cancellationToken);
         _skillManager.RegisterPluginsWithKernel(_kernel);
 
+        // Initialize memory system if enabled
+        await InitializeMemoryAsync(cancellationToken);
+
         // Configure function choice behavior options
         var functionChoiceOptions = new FunctionChoiceBehaviorOptions
         {
@@ -196,6 +213,145 @@ public class AgentService : IAsyncDisposable
 
             default:
                 throw new InvalidOperationException($"Unsupported AI provider: {provider.Provider}");
+        }
+    }
+
+    /// <summary>
+    /// Gets the last memory initialization error, if any.
+    /// </summary>
+    public string? MemoryInitializationError { get; private set; }
+
+    /// <summary>
+    /// Initializes the memory system if enabled in configuration.
+    /// </summary>
+    private async Task InitializeMemoryAsync(CancellationToken cancellationToken)
+    {
+        var memoryConfig = _config.Memory;
+        MemoryInitializationError = null;
+        
+        if (!memoryConfig.Enabled)
+        {
+            _logger?.LogInformation("Memory system is disabled");
+            return;
+        }
+
+        _logger?.LogInformation("Initializing memory system...");
+
+        try
+        {
+            // Create memory manager using factory
+            _memoryManager = MemoryManagerFactory.CreateFromMicrobotConfig(
+                _config,
+                _loggerFactory);
+
+            // Initialize the memory manager (creates database, runs migrations)
+            await _memoryManager.InitializeAsync(cancellationToken);
+
+            // Register memory skill with kernel
+            if (_kernel != null)
+            {
+                var memorySkill = new MemorySkill(_memoryManager);
+                _kernel.ImportPluginFromObject(memorySkill, "Memory");
+                _logger?.LogInformation("Memory skill registered with kernel");
+            }
+
+            // Start memory sync service if file watching is enabled
+            if (memoryConfig.Sync.EnableFileWatching)
+            {
+                _memorySyncService = new MemorySyncService(
+                    _memoryManager,
+                    _loggerFactory?.CreateLogger<MemorySyncService>());
+                
+                // Watch the memory folder and sessions folder
+                _memorySyncService.DebounceDelayMs = memoryConfig.Sync.DebounceMs;
+                _memorySyncService.StartWatching(memoryConfig.MemoryFolder, memoryConfig.SessionsFolder);
+                _logger?.LogInformation("Memory sync service started watching: {MemoryFolder}, {SessionsFolder}",
+                    memoryConfig.MemoryFolder, memoryConfig.SessionsFolder);
+            }
+
+            // Start a new session
+            StartNewSession();
+
+            _logger?.LogInformation("Memory system initialized successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to initialize memory system. Memory features will be disabled.");
+            MemoryInitializationError = ex.Message;
+            _memoryManager = null;
+            _memorySyncService = null;
+        }
+    }
+
+    /// <summary>
+    /// Starts a new conversation session for memory tracking.
+    /// </summary>
+    private void StartNewSession()
+    {
+        _currentSessionKey = $"session-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
+        _currentSession = new SessionTranscript
+        {
+            SessionKey = _currentSessionKey,
+            StartedAt = DateTime.UtcNow,
+            Metadata = new Dictionary<string, string>
+            {
+                ["agent_name"] = _config.Preferences.AgentName,
+                ["ai_provider"] = _config.AiProvider.Provider,
+                ["model"] = _config.AiProvider.ModelId
+            }
+        };
+        
+        _logger?.LogDebug("Started new session: {SessionKey}", _currentSessionKey);
+    }
+
+    /// <summary>
+    /// Records a conversation turn in the current session.
+    /// </summary>
+    private void RecordConversationTurn(string userMessage, string assistantResponse)
+    {
+        if (_currentSession == null || _memoryManager == null)
+            return;
+
+        _currentSession.Entries.Add(new TranscriptEntry
+        {
+            Role = "user",
+            Content = userMessage,
+            Timestamp = DateTime.UtcNow
+        });
+
+        _currentSession.Entries.Add(new TranscriptEntry
+        {
+            Role = "assistant",
+            Content = assistantResponse,
+            Timestamp = DateTime.UtcNow
+        });
+    }
+
+    /// <summary>
+    /// Saves the current session to memory.
+    /// </summary>
+    public async Task SaveCurrentSessionAsync(CancellationToken cancellationToken = default)
+    {
+        if (_currentSession == null || _memoryManager == null)
+            return;
+
+        if (_currentSession.Entries.Count == 0)
+        {
+            _logger?.LogDebug("No entries in current session, skipping save");
+            return;
+        }
+
+        _currentSession.EndedAt = DateTime.UtcNow;
+        
+        try
+        {
+            await _memoryManager.SaveSessionAsync(_currentSession, cancellationToken);
+            _logger?.LogInformation("Session {SessionKey} saved with {EntryCount} entries",
+                _currentSession.SessionKey, _currentSession.Entries.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to save session {SessionKey}", _currentSession.SessionKey);
         }
     }
 
@@ -349,6 +505,9 @@ public class AgentService : IAsyncDisposable
             // Signal completion to safety filter
             _safetyFilter?.CompleteRequest(responseText, iterationCount);
             
+            // Record conversation turn in session
+            RecordConversationTurn(userMessage, responseText);
+            
             _logger?.LogDebug("Request {SessionId} completed. Response: {Response}", sessionId, responseText);
 
             return responseText;
@@ -481,6 +640,9 @@ public class AgentService : IAsyncDisposable
             
             // Signal completion to safety filter
             _safetyFilter?.CompleteRequest(fullResponse.ToString(), iterationCount);
+            
+            // Record conversation turn in session
+            RecordConversationTurn(userMessage, fullResponse.ToString());
         }
     }
 
@@ -541,6 +703,26 @@ public class AgentService : IAsyncDisposable
         if (_disposed)
             return;
 
+        // Save current session before disposing
+        try
+        {
+            await SaveCurrentSessionAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error saving session during dispose");
+        }
+
+        // Dispose memory sync service
+        _memorySyncService?.Dispose();
+
+        // Dispose memory manager
+        if (_memoryManager is IDisposable disposableMemory)
+        {
+            disposableMemory.Dispose();
+        }
+
+        // Dispose skill manager
         if (_skillManager != null)
         {
             await _skillManager.DisposeAsync();

@@ -325,72 +325,80 @@ public partial class MarkdownRenderer
     /// </summary>
     private string FormatInlineMarkdown(string text)
     {
-        // First, escape any existing Spectre markup characters that aren't part of our markdown
-        // We need to be careful here - escape [ and ] that aren't part of markdown links
+        // Use placeholder tokens to protect markdown elements during processing
+        var placeholders = new Dictionary<string, string>();
+        int placeholderIndex = 0;
+        
+        // Helper to create a unique placeholder
+        string CreatePlaceholder(string replacement)
+        {
+            var placeholder = $"\x00PH{placeholderIndex++}\x00";
+            placeholders[placeholder] = replacement;
+            return placeholder;
+        }
         
         // Process inline code first (to avoid processing markdown inside code)
-        var codeSegments = new List<(int Start, int End, string Replacement)>();
-        foreach (Match match in InlineCodeRegex().Matches(text))
+        text = InlineCodeRegex().Replace(text, match =>
         {
             var code = Markup.Escape(match.Groups[1].Value);
-            codeSegments.Add((match.Index, match.Index + match.Length, $"[grey on grey23]{code}[/]"));
-        }
-
-        // Apply code replacements in reverse order to maintain indices
-        var result = new StringBuilder(text);
-        for (int i = codeSegments.Count - 1; i >= 0; i--)
-        {
-            var segment = codeSegments[i];
-            result.Remove(segment.Start, segment.End - segment.Start);
-            result.Insert(segment.Start, segment.Replacement);
-        }
-        text = result.ToString();
+            return CreatePlaceholder($"[grey on grey23]{code}[/]");
+        });
 
         // Process links: [text](url)
         text = LinkRegex().Replace(text, match =>
         {
             var linkText = Markup.Escape(match.Groups[1].Value);
             var url = match.Groups[2].Value;
-            return $"[link={url}][blue underline]{linkText}[/][/]";
+            return CreatePlaceholder($"[link={url}][blue underline]{linkText}[/][/]");
         });
 
         // Process bold+italic: ***text***
         text = BoldItalicRegex().Replace(text, match =>
         {
             var content = Markup.Escape(match.Groups[1].Value);
-            return $"[bold italic]{content}[/]";
+            return CreatePlaceholder($"[bold italic]{content}[/]");
         });
 
         // Process bold: **text** or __text__
         text = BoldRegex().Replace(text, match =>
         {
             var content = Markup.Escape(match.Groups[1].Value);
-            return $"[bold]{content}[/]";
+            return CreatePlaceholder($"[bold]{content}[/]");
         });
         text = BoldUnderscoreRegex().Replace(text, match =>
         {
             var content = Markup.Escape(match.Groups[1].Value);
-            return $"[bold]{content}[/]";
+            return CreatePlaceholder($"[bold]{content}[/]");
         });
 
         // Process italic: *text* or _text_
         text = ItalicRegex().Replace(text, match =>
         {
             var content = Markup.Escape(match.Groups[1].Value);
-            return $"[italic]{content}[/]";
+            return CreatePlaceholder($"[italic]{content}[/]");
         });
         text = ItalicUnderscoreRegex().Replace(text, match =>
         {
             var content = Markup.Escape(match.Groups[1].Value);
-            return $"[italic]{content}[/]";
+            return CreatePlaceholder($"[italic]{content}[/]");
         });
 
         // Process strikethrough: ~~text~~
         text = StrikethroughRegex().Replace(text, match =>
         {
             var content = Markup.Escape(match.Groups[1].Value);
-            return $"[strikethrough]{content}[/]";
+            return CreatePlaceholder($"[strikethrough]{content}[/]");
         });
+
+        // Now escape any remaining text that might contain Spectre markup characters
+        // We need to escape [ and ] that aren't part of our placeholders
+        text = Markup.Escape(text);
+        
+        // Restore all placeholders with their actual markup
+        foreach (var kvp in placeholders)
+        {
+            text = text.Replace(Markup.Escape(kvp.Key), kvp.Value);
+        }
 
         return text;
     }

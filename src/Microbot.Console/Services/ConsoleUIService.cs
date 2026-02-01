@@ -276,6 +276,7 @@ public class ConsoleUIService
         table.AddRow("[cyan]/mcp list[/]", "List MCP servers from the registry");
         table.AddRow("[cyan]/mcp install <name>[/]", "Install an MCP server from the registry");
         table.AddRow("[cyan]/mcp info <name>[/]", "Show details about an MCP server");
+        table.AddRow("[cyan]/memory[/]", "Memory system commands (status, sync, search, sessions)");
         table.AddRow("[cyan]/clear[/]", "Clear the screen and chat history");
         table.AddRow("[cyan]/config[/]", "Show current configuration");
         table.AddRow("[cyan]/reload[/]", "Reload configuration from file");
