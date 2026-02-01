@@ -1200,6 +1200,76 @@ private static string ResolveCommand(string command)
 }
 ```
 
+### Phase 12: Teams Skill 🔲 PLANNED
+- [ ] Create Microbot.Skills.Teams project
+- [ ] Implement TeamsSkillMode enum (ReadOnly, Full)
+- [ ] Add TeamsSkillConfig to MicrobotConfig
+- [ ] Implement TeamsAuthenticationService (Device Code and Interactive Browser flows)
+- [ ] Implement ReadStateTracker for local unread message tracking
+- [ ] Implement TeamsSkill with KernelFunction methods
+- [ ] Add team/channel functions (list_teams, list_channels, get_channel)
+- [ ] Add channel message functions (list_channel_messages, get_channel_message, send_channel_message, reply_to_channel_message)
+- [ ] Add chat functions (list_chats, list_chat_messages, send_chat_message)
+- [ ] Add unread message functions (get_unread_channel_messages, get_unread_chat_messages, mark_channel_as_read, mark_chat_as_read)
+- [ ] Implement permission checking based on TeamsSkillMode
+- [ ] Create TeamsSkillLoader and register with SkillManager
+- [ ] Update configuration wizard for Teams skill setup
+- [ ] Document Azure AD app registration steps (see plans/teams-skill-implementation.md)
+
+#### Teams Skill Features
+| Feature | ReadOnly | Full |
+|---------|----------|------|
+| List teams (all tenants) | ✅ | ✅ |
+| List channels | ✅ | ✅ |
+| Read channel messages | ✅ | ✅ |
+| Send channel messages | ❌ | ✅ |
+| Reply to channel messages | ❌ | ✅ |
+| List chats (1:1 and group) | ✅ | ✅ |
+| Read chat messages | ✅ | ✅ |
+| Send chat messages | ❌ | ✅ |
+| Track unread messages | ✅ | ✅ |
+
+#### Multi-Tenant Support
+The Teams skill automatically discovers and works with all tenants the user has access to:
+- Home tenant (user's primary organization)
+- Guest tenants (organizations where user is invited as guest)
+- Uses `TenantId = "common"` for multi-tenant authentication
+- `joinedTeams` API returns teams from all accessible tenants
+
+#### Unread Message Tracking
+Since Microsoft Graph doesn't provide built-in unread tracking for channel messages:
+- Local JSON file stores last-read timestamps per channel/chat
+- `ReadStateTracker` service manages read state persistence
+- Timestamps stored in `~/.microbot/teams-read-state.json`
+
+#### Files to Create
+| File | Description |
+|------|-------------|
+| `Microbot.Skills.Teams/TeamsSkill.cs` | Main skill with KernelFunction methods |
+| `Microbot.Skills.Teams/TeamsSkillMode.cs` | Permission mode enum |
+| `Microbot.Skills.Teams/Models/Team.cs` | Team model |
+| `Microbot.Skills.Teams/Models/Channel.cs` | Channel model |
+| `Microbot.Skills.Teams/Models/ChannelMessage.cs` | Channel message model |
+| `Microbot.Skills.Teams/Models/Chat.cs` | Chat model |
+| `Microbot.Skills.Teams/Models/ChatMessage.cs` | Chat message model |
+| `Microbot.Skills.Teams/Services/TeamsAuthenticationService.cs` | Authentication service |
+| `Microbot.Skills.Teams/Services/ReadStateTracker.cs` | Local unread tracking |
+| `Microbot.Skills/Loaders/TeamsSkillLoader.cs` | Skill loader |
+
+#### Required Graph API Permissions
+| Permission | Type | ReadOnly | Full |
+|------------|------|----------|------|
+| Team.ReadBasic.All | Delegated | ✅ | ✅ |
+| Channel.ReadBasic.All | Delegated | ✅ | ✅ |
+| ChannelMessage.Read.All | Delegated | ✅ | ✅ |
+| ChannelMessage.Send | Delegated | ❌ | ✅ |
+| Chat.Read | Delegated | ✅ | ✅ |
+| ChatMessage.Read | Delegated | ✅ | ✅ |
+| ChatMessage.Send | Delegated | ❌ | ✅ |
+| User.Read | Delegated | ✅ | ✅ |
+
+See `plans/teams-skill-implementation.md` for complete implementation details.
+
 ## Next Steps
 
 After completing this implementation:
