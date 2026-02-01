@@ -9,7 +9,7 @@ using System.Collections.Generic;
 using System.Linq;
 
 /// <summary>
-/// Manages the loading and registration of all skills (MCP, NuGet, and built-in skills like Outlook).
+/// Manages the loading and registration of all skills (MCP, NuGet, and built-in skills like Outlook and Teams).
 /// </summary>
 public class SkillManager : IAsyncDisposable
 {
@@ -19,6 +19,7 @@ public class SkillManager : IAsyncDisposable
     private readonly McpSkillLoader _mcpLoader;
     private readonly NuGetSkillLoader _nugetLoader;
     private readonly OutlookSkillLoader? _outlookLoader;
+    private readonly TeamsSkillLoader? _teamsLoader;
     private readonly List<KernelPlugin> _loadedPlugins = [];
     private readonly Action<string>? _deviceCodeCallback;
     private bool _disposed;
@@ -54,6 +55,15 @@ public class SkillManager : IAsyncDisposable
             _outlookLoader = new OutlookSkillLoader(
                 config.Outlook,
                 loggerFactory?.CreateLogger<OutlookSkillLoader>(),
+                deviceCodeCallback);
+        }
+
+        // Initialize Teams loader if configured
+        if (config.Teams?.Enabled == true)
+        {
+            _teamsLoader = new TeamsSkillLoader(
+                config.Teams,
+                loggerFactory?.CreateLogger<TeamsSkillLoader>(),
                 deviceCodeCallback);
         }
     }
@@ -132,6 +142,22 @@ public class SkillManager : IAsyncDisposable
             }
         }
 
+        // Load Teams skill
+        if (_teamsLoader != null)
+        {
+            try
+            {
+                _logger?.LogInformation("Loading Teams skill...");
+                var teamsPlugins = await _teamsLoader.LoadSkillsAsync(cancellationToken);
+                _loadedPlugins.AddRange(teamsPlugins);
+                _logger?.LogInformation("Loaded {Count} Teams plugins", teamsPlugins.Count());
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error loading Teams skill");
+            }
+        }
+
         _logger?.LogInformation("Total plugins loaded: {Count}", _loadedPlugins.Count);
 
         return _loadedPlugins;
@@ -190,7 +216,21 @@ public class SkillManager : IAsyncDisposable
                     : null
         });
 
-        // Future: Add more built-in skills here
+        // Built-in: Teams skill
+        skills.Add(new AvailableSkill
+        {
+            Id = "teams",
+            Name = "Teams",
+            Description = "Microsoft Teams integration for channels, chats, and messages via Microsoft Graph API (multi-tenant support)",
+            Type = SkillType.BuiltIn,
+            IsEnabled = _config.Teams?.Enabled ?? false,
+            IsConfigured = !string.IsNullOrEmpty(_config.Teams?.ClientId),
+            ConfigurationSummary = _config.Teams?.Enabled == true
+                ? $"Mode: {_config.Teams.Mode}, Auth: {_config.Teams.AuthenticationMethod}, Tenant: {_config.Teams.TenantId}"
+                : _config.Teams?.ClientId != null
+                    ? $"Mode: {_config.Teams?.Mode} (disabled)"
+                    : null
+        });
 
         return skills;
     }
@@ -207,6 +247,11 @@ public class SkillManager : IAsyncDisposable
         if (_outlookLoader != null)
         {
             await _outlookLoader.DisposeAsync();
+        }
+
+        if (_teamsLoader != null)
+        {
+            await _teamsLoader.DisposeAsync();
         }
 
         _loadedPlugins.Clear();

@@ -81,6 +81,11 @@ public class SkillsConfig
     /// Outlook skill configuration.
     /// </summary>
     public OutlookSkillConfig Outlook { get; set; } = new();
+
+    /// <summary>
+    /// Teams skill configuration.
+    /// </summary>
+    public TeamsSkillConfig Teams { get; set; } = new();
 }
 
 /// <summary>
@@ -105,6 +110,42 @@ public class OutlookSkillConfig
 
     /// <summary>
     /// Azure AD Tenant ID. Use "common" for multi-tenant or personal accounts.
+    /// </summary>
+    public string TenantId { get; set; } = "common";
+
+    /// <summary>
+    /// Authentication method: "DeviceCode" or "InteractiveBrowser".
+    /// </summary>
+    public string AuthenticationMethod { get; set; } = "DeviceCode";
+
+    /// <summary>
+    /// Redirect URI for Interactive Browser authentication.
+    /// </summary>
+    public string RedirectUri { get; set; } = "http://localhost";
+}
+
+/// <summary>
+/// Configuration for the Teams skill.
+/// </summary>
+public class TeamsSkillConfig
+{
+    /// <summary>
+    /// Whether the Teams skill is enabled.
+    /// </summary>
+    public bool Enabled { get; set; } = false;
+
+    /// <summary>
+    /// The permission mode for the Teams skill: "ReadOnly" or "Full".
+    /// </summary>
+    public string Mode { get; set; } = "ReadOnly";
+
+    /// <summary>
+    /// Azure AD Application (client) ID.
+    /// </summary>
+    public string? ClientId { get; set; }
+
+    /// <summary>
+    /// Azure AD Tenant ID. Use "common" for multi-tenant access (home + guest tenants).
     /// </summary>
     public string TenantId { get; set; } = "common";
 

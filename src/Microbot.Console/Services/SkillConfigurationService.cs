@@ -30,6 +30,7 @@ public class SkillConfigurationService
         return skillId.ToLowerInvariant() switch
         {
             "outlook" => ConfigureOutlookSkill(config),
+            "teams" => ConfigureTeamsSkill(config),
             _ => HandleUnknownSkill(skillId)
         };
     }
@@ -127,6 +128,155 @@ public class SkillConfigurationService
         AnsiConsole.WriteLine();
 
         return true;
+    }
+
+    /// <summary>
+    /// Configures the Teams skill.
+    /// </summary>
+    /// <param name="config">The configuration to update.</param>
+    /// <returns>True if configuration was successful, false if cancelled.</returns>
+    private bool ConfigureTeamsSkill(MicrobotConfig config)
+    {
+        AnsiConsole.Write(new Rule("[cyan]Teams Skill Configuration[/]").RuleStyle("grey"));
+        AnsiConsole.WriteLine();
+
+        // Show current configuration if exists
+        if (config.Skills.Teams?.Enabled == true || !string.IsNullOrEmpty(config.Skills.Teams?.ClientId))
+        {
+            DisplayCurrentTeamsConfig(config.Skills.Teams);
+
+            if (!AnsiConsole.Confirm("[yellow]Do you want to reconfigure?[/]", false))
+            {
+                return false;
+            }
+            AnsiConsole.WriteLine();
+        }
+
+        // Ensure Teams config exists
+        config.Skills.Teams ??= new TeamsSkillConfig();
+
+        // Enable/Disable
+        var enable = AnsiConsole.Confirm(
+            "[cyan]Enable Teams skill?[/] (requires Azure AD app registration with multi-tenant support)",
+            config.Skills.Teams.Enabled);
+
+        if (!enable)
+        {
+            config.Skills.Teams.Enabled = false;
+            _ui.DisplaySuccess("Teams skill disabled.");
+            return true;
+        }
+
+        config.Skills.Teams.Enabled = true;
+
+        // Mode selection
+        var mode = _ui.SelectOption(
+            "Select Teams skill [green]permission mode[/]:",
+            new[] { "ReadOnly", "Full" });
+        config.Skills.Teams.Mode = mode;
+
+        // Display mode description
+        var modeDescription = mode switch
+        {
+            "ReadOnly" => "Read teams, channels, chats, and messages only",
+            "Full" => "Read teams/channels/chats and send messages",
+            _ => ""
+        };
+        _ui.DisplayInfo($"Mode: {modeDescription}");
+        AnsiConsole.WriteLine();
+
+        // Show Azure AD setup instructions for Teams
+        DisplayTeamsAzureAdSetupInstructions(mode);
+
+        // Client ID
+        var currentClientId = config.Skills.Teams.ClientId;
+        var clientIdPrompt = string.IsNullOrEmpty(currentClientId)
+            ? "Enter your Azure AD Application (Client) ID:"
+            : $"Enter your Azure AD Application (Client) ID [grey](current: {MaskString(currentClientId)})[/]:";
+        
+        config.Skills.Teams.ClientId = _ui.PromptText(
+            clientIdPrompt,
+            currentClientId);
+
+        // Tenant ID - default to "common" for multi-tenant
+        _ui.DisplayInfo("For multi-tenant support (home + guest tenants), use 'common' as Tenant ID.");
+        config.Skills.Teams.TenantId = _ui.PromptText(
+            "Enter your Tenant ID (use 'common' for multi-tenant access):",
+            config.Skills.Teams.TenantId ?? "common");
+
+        // Authentication method
+        var authMethod = _ui.SelectOption(
+            "Select authentication method:",
+            new[] { "DeviceCode", "InteractiveBrowser" });
+        config.Skills.Teams.AuthenticationMethod = authMethod;
+
+        if (authMethod == "InteractiveBrowser")
+        {
+            config.Skills.Teams.RedirectUri = _ui.PromptText(
+                "Enter Redirect URI:",
+                config.Skills.Teams.RedirectUri ?? "http://localhost");
+        }
+
+        AnsiConsole.WriteLine();
+        _ui.DisplaySuccess("Teams skill configured!");
+        _ui.DisplayInfo("Note: You will be prompted to authenticate when the skill is first used.");
+        _ui.DisplayInfo("The skill will automatically access teams from all tenants (home + guest).");
+        AnsiConsole.WriteLine();
+
+        return true;
+    }
+
+    /// <summary>
+    /// Displays the current Teams configuration.
+    /// </summary>
+    private void DisplayCurrentTeamsConfig(TeamsSkillConfig teamsConfig)
+    {
+        var status = teamsConfig.Enabled ? "[green]Enabled[/]" : "[yellow]Disabled[/]";
+        
+        AnsiConsole.MarkupLine($"[yellow]Teams skill is currently configured:[/]");
+        AnsiConsole.MarkupLine($"  Status: {status}");
+        AnsiConsole.MarkupLine($"  Mode: [cyan]{Markup.Escape(teamsConfig.Mode)}[/]");
+        AnsiConsole.MarkupLine($"  Client ID: [cyan]{MaskString(teamsConfig.ClientId)}[/]");
+        AnsiConsole.MarkupLine($"  Tenant ID: [cyan]{Markup.Escape(teamsConfig.TenantId)}[/]");
+        AnsiConsole.MarkupLine($"  Auth Method: [cyan]{Markup.Escape(teamsConfig.AuthenticationMethod)}[/]");
+        if (teamsConfig.AuthenticationMethod == "InteractiveBrowser")
+        {
+            AnsiConsole.MarkupLine($"  Redirect URI: [cyan]{Markup.Escape(teamsConfig.RedirectUri)}[/]");
+        }
+        AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// Displays Azure AD setup instructions for Teams skill.
+    /// </summary>
+    private void DisplayTeamsAzureAdSetupInstructions(string mode)
+    {
+        var permissions = mode switch
+        {
+            "ReadOnly" => "Team.ReadBasic.All, Channel.ReadBasic.All, ChannelMessage.Read.All,\n   Chat.Read, ChatMessage.Read, User.Read",
+            "Full" => "Team.ReadBasic.All, Channel.ReadBasic.All, ChannelMessage.Read.All,\n   ChannelMessage.Send, Chat.Read, ChatMessage.Read, ChatMessage.Send, User.Read",
+            _ => ""
+        };
+
+        var panel = new Panel(
+            new Markup(
+                $"[bold]Azure AD App Registration Required (Multi-Tenant)[/]\n\n" +
+                $"1. Go to [link]https://portal.azure.com[/] > Azure Active Directory > App registrations\n" +
+                $"2. Create a new registration with [cyan]Accounts in any organizational directory[/]\n" +
+                $"3. Enable [cyan]Allow public client flows[/] in Authentication settings\n" +
+                $"4. Add the following [cyan]Delegated permissions[/] in API permissions:\n" +
+                $"   [green]{permissions}[/]\n" +
+                $"5. Copy the [cyan]Application (client) ID[/] from the Overview page\n\n" +
+                $"[yellow]Important:[/] For multi-tenant access, the app must be registered as multi-tenant\n" +
+                $"and use TenantId = 'common' to access teams from guest tenants."))
+        {
+            Header = new PanelHeader("[yellow]Setup Instructions[/]"),
+            Border = BoxBorder.Rounded,
+            Padding = new Padding(2, 1)
+        };
+
+        AnsiConsole.Write(panel);
+        AnsiConsole.WriteLine();
     }
 
     /// <summary>
