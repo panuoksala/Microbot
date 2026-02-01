@@ -9,7 +9,7 @@ using System.Collections.Generic;
 using System.Linq;
 
 /// <summary>
-/// Manages the loading and registration of all skills (MCP, NuGet, and built-in skills like Outlook and Teams).
+/// Manages the loading and registration of all skills (MCP, NuGet, and built-in skills like Outlook, Teams, and Slack).
 /// </summary>
 public class SkillManager : IAsyncDisposable
 {
@@ -20,6 +20,7 @@ public class SkillManager : IAsyncDisposable
     private readonly NuGetSkillLoader _nugetLoader;
     private readonly OutlookSkillLoader? _outlookLoader;
     private readonly TeamsSkillLoader? _teamsLoader;
+    private readonly SlackSkillLoader? _slackLoader;
     private readonly List<KernelPlugin> _loadedPlugins = [];
     private readonly Action<string>? _deviceCodeCallback;
     private bool _disposed;
@@ -65,6 +66,14 @@ public class SkillManager : IAsyncDisposable
                 config.Teams,
                 loggerFactory?.CreateLogger<TeamsSkillLoader>(),
                 deviceCodeCallback);
+        }
+
+        // Initialize Slack loader if configured
+        if (config.Slack?.Enabled == true)
+        {
+            _slackLoader = new SlackSkillLoader(
+                config.Slack,
+                loggerFactory?.CreateLogger<SlackSkillLoader>());
         }
     }
 
@@ -158,6 +167,22 @@ public class SkillManager : IAsyncDisposable
             }
         }
 
+        // Load Slack skill
+        if (_slackLoader != null)
+        {
+            try
+            {
+                _logger?.LogInformation("Loading Slack skill...");
+                var slackPlugins = await _slackLoader.LoadSkillsAsync(cancellationToken);
+                _loadedPlugins.AddRange(slackPlugins);
+                _logger?.LogInformation("Loaded {Count} Slack plugins", slackPlugins.Count());
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error loading Slack skill");
+            }
+        }
+
         _logger?.LogInformation("Total plugins loaded: {Count}", _loadedPlugins.Count);
 
         return _loadedPlugins;
@@ -232,6 +257,22 @@ public class SkillManager : IAsyncDisposable
                     : null
         });
 
+        // Built-in: Slack skill
+        skills.Add(new AvailableSkill
+        {
+            Id = "slack",
+            Name = "Slack",
+            Description = "Slack integration for channels, direct messages, and messaging via Slack Web API",
+            Type = SkillType.BuiltIn,
+            IsEnabled = _config.Slack?.Enabled ?? false,
+            IsConfigured = !string.IsNullOrEmpty(_config.Slack?.BotToken),
+            ConfigurationSummary = _config.Slack?.Enabled == true
+                ? $"Mode: {_config.Slack.Mode}"
+                : _config.Slack?.BotToken != null
+                    ? $"Mode: {_config.Slack?.Mode} (disabled)"
+                    : null
+        });
+
         return skills;
     }
 
@@ -252,6 +293,11 @@ public class SkillManager : IAsyncDisposable
         if (_teamsLoader != null)
         {
             await _teamsLoader.DisposeAsync();
+        }
+
+        if (_slackLoader != null)
+        {
+            await _slackLoader.DisposeAsync();
         }
 
         _loadedPlugins.Clear();

@@ -91,6 +91,11 @@ public class SkillsConfig
     /// Teams skill configuration.
     /// </summary>
     public TeamsSkillConfig Teams { get; set; } = new();
+
+    /// <summary>
+    /// Slack skill configuration.
+    /// </summary>
+    public SlackSkillConfig Slack { get; set; } = new();
 }
 
 /// <summary>
@@ -163,6 +168,38 @@ public class TeamsSkillConfig
     /// Redirect URI for Interactive Browser authentication.
     /// </summary>
     public string RedirectUri { get; set; } = "http://localhost";
+}
+
+/// <summary>
+/// Configuration for the Slack skill.
+/// </summary>
+public class SlackSkillConfig
+{
+    /// <summary>
+    /// Whether the Slack skill is enabled.
+    /// </summary>
+    public bool Enabled { get; set; } = false;
+
+    /// <summary>
+    /// The permission mode for the Slack skill: "ReadOnly" or "Full".
+    /// </summary>
+    public string Mode { get; set; } = "ReadOnly";
+
+    /// <summary>
+    /// Slack Bot User OAuth Token (starts with xoxb-).
+    /// </summary>
+    public string? BotToken { get; set; }
+
+    /// <summary>
+    /// Optional: App-level token for Socket Mode (starts with xapp-).
+    /// Not required for basic API access.
+    /// </summary>
+    public string? AppToken { get; set; }
+
+    /// <summary>
+    /// Path to store read state (last read timestamps).
+    /// </summary>
+    public string ReadStatePath { get; set; } = "./slack-read-state.json";
 }
 
 /// <summary>

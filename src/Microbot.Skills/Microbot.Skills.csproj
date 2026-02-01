@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Microbot.Core\Microbot.Core.csproj" />
     <ProjectReference Include="..\Microbot.Skills.Outlook\Microbot.Skills.Outlook.csproj" />
+    <ProjectReference Include="..\Microbot.Skills.Slack\Microbot.Skills.Slack.csproj" />
     <ProjectReference Include="..\Microbot.Skills.Teams\Microbot.Skills.Teams.csproj" />
   </ItemGroup>
 

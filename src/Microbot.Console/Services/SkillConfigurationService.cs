@@ -31,6 +31,7 @@ public class SkillConfigurationService
         {
             "outlook" => ConfigureOutlookSkill(config),
             "teams" => ConfigureTeamsSkill(config),
+            "slack" => ConfigureSlackSkill(config),
             _ => HandleUnknownSkill(skillId)
         };
     }
@@ -224,6 +225,130 @@ public class SkillConfigurationService
         AnsiConsole.WriteLine();
 
         return true;
+    }
+
+    /// <summary>
+    /// Configures the Slack skill.
+    /// </summary>
+    /// <param name="config">The configuration to update.</param>
+    /// <returns>True if configuration was successful, false if cancelled.</returns>
+    private bool ConfigureSlackSkill(MicrobotConfig config)
+    {
+        AnsiConsole.Write(new Rule("[cyan]Slack Skill Configuration[/]").RuleStyle("grey"));
+        AnsiConsole.WriteLine();
+
+        // Show current configuration if exists
+        if (config.Skills.Slack?.Enabled == true || !string.IsNullOrEmpty(config.Skills.Slack?.BotToken))
+        {
+            DisplayCurrentSlackConfig(config.Skills.Slack);
+
+            if (!AnsiConsole.Confirm("[yellow]Do you want to reconfigure?[/]", false))
+            {
+                return false;
+            }
+            AnsiConsole.WriteLine();
+        }
+
+        // Ensure Slack config exists
+        config.Skills.Slack ??= new SlackSkillConfig();
+
+        // Enable/Disable
+        var enable = AnsiConsole.Confirm(
+            "[cyan]Enable Slack skill?[/] (requires Slack Bot Token)",
+            config.Skills.Slack.Enabled);
+
+        if (!enable)
+        {
+            config.Skills.Slack.Enabled = false;
+            _ui.DisplaySuccess("Slack skill disabled.");
+            return true;
+        }
+
+        config.Skills.Slack.Enabled = true;
+
+        // Mode selection
+        var mode = _ui.SelectOption(
+            "Select Slack skill [green]permission mode[/]:",
+            new[] { "ReadOnly", "Full" });
+        config.Skills.Slack.Mode = mode;
+
+        // Display mode description
+        var modeDescription = mode switch
+        {
+            "ReadOnly" => "Read channels, direct messages, and message history only",
+            "Full" => "Read channels/DMs and send messages",
+            _ => ""
+        };
+        _ui.DisplayInfo($"Mode: {modeDescription}");
+        AnsiConsole.WriteLine();
+
+        // Show Slack Bot setup instructions
+        DisplaySlackBotSetupInstructions(mode);
+
+        // Bot Token
+        var currentBotToken = config.Skills.Slack.BotToken;
+        var botTokenPrompt = string.IsNullOrEmpty(currentBotToken)
+            ? "Enter your Slack Bot User OAuth Token (xoxb-...):"
+            : $"Enter your Slack Bot User OAuth Token [grey](current: {MaskString(currentBotToken)})[/]:";
+        
+        config.Skills.Slack.BotToken = _ui.PromptText(
+            botTokenPrompt,
+            currentBotToken);
+
+        AnsiConsole.WriteLine();
+        _ui.DisplaySuccess("Slack skill configured!");
+        _ui.DisplayInfo("Note: The bot token will be used immediately to connect to Slack.");
+        AnsiConsole.WriteLine();
+
+        return true;
+    }
+
+    /// <summary>
+    /// Displays the current Slack configuration.
+    /// </summary>
+    private void DisplayCurrentSlackConfig(SlackSkillConfig slackConfig)
+    {
+        var status = slackConfig.Enabled ? "[green]Enabled[/]" : "[yellow]Disabled[/]";
+        
+        AnsiConsole.MarkupLine($"[yellow]Slack skill is currently configured:[/]");
+        AnsiConsole.MarkupLine($"  Status: {status}");
+        AnsiConsole.MarkupLine($"  Mode: [cyan]{Markup.Escape(slackConfig.Mode)}[/]");
+        AnsiConsole.MarkupLine($"  Bot Token: [cyan]{MaskString(slackConfig.BotToken)}[/]");
+        AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// Displays Slack Bot setup instructions.
+    /// </summary>
+    private void DisplaySlackBotSetupInstructions(string mode)
+    {
+        var scopes = mode switch
+        {
+            "ReadOnly" => "channels:read, channels:history, groups:read, groups:history,\n   im:read, im:history, mpim:read, mpim:history, users:read",
+            "Full" => "channels:read, channels:history, groups:read, groups:history,\n   im:read, im:history, mpim:read, mpim:history, users:read,\n   chat:write, chat:write.public",
+            _ => ""
+        };
+
+        var panel = new Panel(
+            new Markup(
+                $"[bold]Slack App & Bot Token Required[/]\n\n" +
+                $"1. Go to [link]https://api.slack.com/apps[/] and create a new app\n" +
+                $"2. Select [cyan]From scratch[/] and choose your workspace\n" +
+                $"3. Go to [cyan]OAuth & Permissions[/] in the sidebar\n" +
+                $"4. Add the following [cyan]Bot Token Scopes[/]:\n" +
+                $"   [green]{scopes}[/]\n" +
+                $"5. Click [cyan]Install to Workspace[/] at the top of the page\n" +
+                $"6. Copy the [cyan]Bot User OAuth Token[/] (starts with xoxb-)\n\n" +
+                $"[yellow]Important:[/] Invite the bot to channels you want it to access\n" +
+                $"using /invite @YourBotName in each channel."))
+        {
+            Header = new PanelHeader("[yellow]Setup Instructions[/]"),
+            Border = BoxBorder.Rounded,
+            Padding = new Padding(2, 1)
+        };
+
+        AnsiConsole.Write(panel);
+        AnsiConsole.WriteLine();
     }
 
     /// <summary>

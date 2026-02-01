@@ -51,6 +51,7 @@ Microbot/
     │   └── Events/              # Lifecycle events for agent loop
     ├── Microbot.Skills/         # Skill loading infrastructure
     ├── Microbot.Skills.Outlook/ # Outlook skill (Microsoft Graph integration)
+    ├── Microbot.Skills.Slack/   # Slack skill (SlackNet integration)
     ├── Microbot.Skills.Teams/   # Teams skill (Microsoft Graph integration)
     ├── Microbot.ServiceDefaults/# Aspire service defaults
     └── Microbot.AppHost/        # Aspire AppHost
@@ -107,6 +108,13 @@ Microbot/
   - Progress display in console
   - System prompt safety guidelines
   - See plans/agentic-loop-implementation.md for details
+- ✅ Slack skill with SlackNet integration
+  - Channel messages (list, read, send)
+  - Direct messages (list, read, send)
+  - Unread message tracking (local timestamp storage)
+  - Permission modes: ReadOnly, Full
+  - Bot Token authentication (xoxb-)
+  - See plans/slack-skill-implementation.md for details
 - 🔲 Teams skill with Microsoft Graph integration (planned)
   - Multi-tenant support (home + guest tenants)
   - Channel messages (read, send, reply)

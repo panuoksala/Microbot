@@ -5,6 +5,7 @@
     <Project Path="src/Microbot.Core/Microbot.Core.csproj" />
     <Project Path="src/Microbot.ServiceDefaults/Microbot.ServiceDefaults.csproj" />
     <Project Path="src/Microbot.Skills.Outlook/Microbot.Skills.Outlook.csproj" />
+    <Project Path="src/Microbot.Skills.Slack/Microbot.Skills.Slack.csproj" />
     <Project Path="src/Microbot.Skills.Teams/Microbot.Skills.Teams.csproj" />
     <Project Path="src/Microbot.Skills/Microbot.Skills.csproj" />
   </Folder>
