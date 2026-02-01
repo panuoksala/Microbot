@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Microbot.Core\Microbot.Core.csproj" />
+    <ProjectReference Include="..\Microbot.Skills\Microbot.Skills.csproj" />
+    <ProjectReference Include="..\Microbot.ServiceDefaults\Microbot.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.2" />
+    <PackageReference Include="Microsoft.SemanticKernel" Version="1.70.0" />
+    <PackageReference Include="Microsoft.SemanticKernel.Agents.Core" Version="1.70.0" />
+    <PackageReference Include="Spectre.Console" Version="0.54.0" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>
