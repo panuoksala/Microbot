@@ -9,7 +9,7 @@ using System.Collections.Generic;
 using System.Linq;
 
 /// <summary>
-/// Manages the loading and registration of all skills (MCP, NuGet, and built-in skills like Outlook, Teams, and Slack).
+/// Manages the loading and registration of all skills (MCP, NuGet, and built-in skills like Outlook, Teams, Slack, and YouTrack).
 /// </summary>
 public class SkillManager : IAsyncDisposable
 {
@@ -21,6 +21,7 @@ public class SkillManager : IAsyncDisposable
     private readonly OutlookSkillLoader? _outlookLoader;
     private readonly TeamsSkillLoader? _teamsLoader;
     private readonly SlackSkillLoader? _slackLoader;
+    private readonly YouTrackSkillLoader? _youTrackLoader;
     private readonly List<KernelPlugin> _loadedPlugins = [];
     private readonly Action<string>? _deviceCodeCallback;
     private bool _disposed;
@@ -74,6 +75,14 @@ public class SkillManager : IAsyncDisposable
             _slackLoader = new SlackSkillLoader(
                 config.Slack,
                 loggerFactory?.CreateLogger<SlackSkillLoader>());
+        }
+
+        // Initialize YouTrack loader if configured
+        if (config.YouTrack?.Enabled == true)
+        {
+            _youTrackLoader = new YouTrackSkillLoader(
+                config.YouTrack,
+                loggerFactory?.CreateLogger<YouTrackSkillLoader>());
         }
     }
 
@@ -183,6 +192,22 @@ public class SkillManager : IAsyncDisposable
             }
         }
 
+        // Load YouTrack skill
+        if (_youTrackLoader != null)
+        {
+            try
+            {
+                _logger?.LogInformation("Loading YouTrack skill...");
+                var youTrackPlugins = await _youTrackLoader.LoadSkillsAsync(cancellationToken);
+                _loadedPlugins.AddRange(youTrackPlugins);
+                _logger?.LogInformation("Loaded {Count} YouTrack plugins", youTrackPlugins.Count());
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error loading YouTrack skill");
+            }
+        }
+
         _logger?.LogInformation("Total plugins loaded: {Count}", _loadedPlugins.Count);
 
         return _loadedPlugins;
@@ -273,6 +298,22 @@ public class SkillManager : IAsyncDisposable
                     : null
         });
 
+        // Built-in: YouTrack skill
+        skills.Add(new AvailableSkill
+        {
+            Id = "youtrack",
+            Name = "YouTrack",
+            Description = "JetBrains YouTrack integration for issue tracking, project management, and comments",
+            Type = SkillType.BuiltIn,
+            IsEnabled = _config.YouTrack?.Enabled ?? false,
+            IsConfigured = !string.IsNullOrEmpty(_config.YouTrack?.BaseUrl) && !string.IsNullOrEmpty(_config.YouTrack?.PermanentToken),
+            ConfigurationSummary = _config.YouTrack?.Enabled == true
+                ? $"Mode: {_config.YouTrack.Mode}, URL: {_config.YouTrack.BaseUrl}"
+                : _config.YouTrack?.BaseUrl != null
+                    ? $"Mode: {_config.YouTrack?.Mode} (disabled)"
+                    : null
+        });
+
         return skills;
     }
 
@@ -298,6 +339,11 @@ public class SkillManager : IAsyncDisposable
         if (_slackLoader != null)
         {
             await _slackLoader.DisposeAsync();
+        }
+
+        if (_youTrackLoader != null)
+        {
+            await _youTrackLoader.DisposeAsync();
         }
 
         _loadedPlugins.Clear();

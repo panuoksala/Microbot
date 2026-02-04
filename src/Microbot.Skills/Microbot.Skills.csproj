@@ -5,6 +5,7 @@
     <ProjectReference Include="..\Microbot.Skills.Outlook\Microbot.Skills.Outlook.csproj" />
     <ProjectReference Include="..\Microbot.Skills.Slack\Microbot.Skills.Slack.csproj" />
     <ProjectReference Include="..\Microbot.Skills.Teams\Microbot.Skills.Teams.csproj" />
+    <ProjectReference Include="..\Microbot.Skills.YouTrack\Microbot.Skills.YouTrack.csproj" />
   </ItemGroup>
 
   <ItemGroup>

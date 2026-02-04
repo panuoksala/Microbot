@@ -32,6 +32,7 @@ public class SkillConfigurationService
             "outlook" => ConfigureOutlookSkill(config),
             "teams" => ConfigureTeamsSkill(config),
             "slack" => ConfigureSlackSkill(config),
+            "youtrack" => ConfigureYouTrackSkill(config),
             _ => HandleUnknownSkill(skillId)
         };
     }
@@ -446,6 +447,140 @@ public class SkillConfigurationService
                 $"4. Add the following [cyan]Delegated permissions[/] in API permissions:\n" +
                 $"   [green]{permissions}[/]\n" +
                 $"5. Copy the [cyan]Application (client) ID[/] from the Overview page"))
+        {
+            Header = new PanelHeader("[yellow]Setup Instructions[/]"),
+            Border = BoxBorder.Rounded,
+            Padding = new Padding(2, 1)
+        };
+
+        AnsiConsole.Write(panel);
+        AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// Configures the YouTrack skill.
+    /// </summary>
+    /// <param name="config">The configuration to update.</param>
+    /// <returns>True if configuration was successful, false if cancelled.</returns>
+    private bool ConfigureYouTrackSkill(MicrobotConfig config)
+    {
+        AnsiConsole.Write(new Rule("[cyan]YouTrack Skill Configuration[/]").RuleStyle("grey"));
+        AnsiConsole.WriteLine();
+
+        // Show current configuration if exists
+        if (config.Skills.YouTrack?.Enabled == true || !string.IsNullOrEmpty(config.Skills.YouTrack?.BaseUrl))
+        {
+            DisplayCurrentYouTrackConfig(config.Skills.YouTrack);
+
+            if (!AnsiConsole.Confirm("[yellow]Do you want to reconfigure?[/]", false))
+            {
+                return false;
+            }
+            AnsiConsole.WriteLine();
+        }
+
+        // Ensure YouTrack config exists
+        config.Skills.YouTrack ??= new YouTrackSkillConfig();
+
+        // Enable/Disable
+        var enable = AnsiConsole.Confirm(
+            "[cyan]Enable YouTrack skill?[/] (requires YouTrack permanent token)",
+            config.Skills.YouTrack.Enabled);
+
+        if (!enable)
+        {
+            config.Skills.YouTrack.Enabled = false;
+            _ui.DisplaySuccess("YouTrack skill disabled.");
+            return true;
+        }
+
+        config.Skills.YouTrack.Enabled = true;
+
+        // Mode selection
+        var mode = _ui.SelectOption(
+            "Select YouTrack skill [green]permission mode[/]:",
+            new[] { "ReadOnly", "FullControl" });
+        config.Skills.YouTrack.Mode = mode;
+
+        // Display mode description
+        var modeDescription = mode switch
+        {
+            "ReadOnly" => "Read projects, issues, and comments only",
+            "FullControl" => "Read/create/update issues and comments, execute commands",
+            _ => ""
+        };
+        _ui.DisplayInfo($"Mode: {modeDescription}");
+        AnsiConsole.WriteLine();
+
+        // Show YouTrack setup instructions
+        DisplayYouTrackSetupInstructions(mode);
+
+        // Base URL
+        var currentBaseUrl = config.Skills.YouTrack.BaseUrl;
+        var baseUrlPrompt = string.IsNullOrEmpty(currentBaseUrl)
+            ? "Enter your YouTrack Base URL (e.g., https://youtrack.example.com):"
+            : $"Enter your YouTrack Base URL [grey](current: {currentBaseUrl})[/]:";
+        
+        config.Skills.YouTrack.BaseUrl = _ui.PromptText(
+            baseUrlPrompt,
+            currentBaseUrl);
+
+        // Permanent Token
+        var currentToken = config.Skills.YouTrack.PermanentToken;
+        var tokenPrompt = string.IsNullOrEmpty(currentToken)
+            ? "Enter your YouTrack Permanent Token (perm:...):"
+            : $"Enter your YouTrack Permanent Token [grey](current: {MaskString(currentToken)})[/]:";
+        
+        config.Skills.YouTrack.PermanentToken = _ui.PromptText(
+            tokenPrompt,
+            currentToken);
+
+        AnsiConsole.WriteLine();
+        _ui.DisplaySuccess("YouTrack skill configured!");
+        _ui.DisplayInfo("Note: The permanent token will be used immediately to connect to YouTrack.");
+        AnsiConsole.WriteLine();
+
+        return true;
+    }
+
+    /// <summary>
+    /// Displays the current YouTrack configuration.
+    /// </summary>
+    private void DisplayCurrentYouTrackConfig(YouTrackSkillConfig youTrackConfig)
+    {
+        var status = youTrackConfig.Enabled ? "[green]Enabled[/]" : "[yellow]Disabled[/]";
+        
+        AnsiConsole.MarkupLine($"[yellow]YouTrack skill is currently configured:[/]");
+        AnsiConsole.MarkupLine($"  Status: {status}");
+        AnsiConsole.MarkupLine($"  Mode: [cyan]{Markup.Escape(youTrackConfig.Mode)}[/]");
+        AnsiConsole.MarkupLine($"  Base URL: [cyan]{Markup.Escape(youTrackConfig.BaseUrl ?? "(not set)")}[/]");
+        AnsiConsole.MarkupLine($"  Permanent Token: [cyan]{MaskString(youTrackConfig.PermanentToken)}[/]");
+        AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// Displays YouTrack setup instructions.
+    /// </summary>
+    private void DisplayYouTrackSetupInstructions(string mode)
+    {
+        var permissions = mode switch
+        {
+            "ReadOnly" => "Read Service (for projects, issues, comments)",
+            "FullControl" => "Read Service, Update Issue, Create Issue, Apply Command",
+            _ => ""
+        };
+
+        var panel = new Panel(
+            new Markup(
+                $"[bold]YouTrack Permanent Token Required[/]\n\n" +
+                $"1. Log in to your YouTrack instance\n" +
+                $"2. Go to [cyan]Profile[/] > [cyan]Account Security[/] > [cyan]Tokens[/]\n" +
+                $"3. Click [cyan]New token...[/]\n" +
+                $"4. Give it a name (e.g., 'Microbot')\n" +
+                $"5. Select the required scopes:\n" +
+                $"   [green]{permissions}[/]\n" +
+                $"6. Click [cyan]Create[/] and copy the token (starts with perm:)\n\n" +
+                $"[yellow]Important:[/] Store the token securely - it won't be shown again!"))
         {
             Header = new PanelHeader("[yellow]Setup Instructions[/]"),
             Border = BoxBorder.Rounded,

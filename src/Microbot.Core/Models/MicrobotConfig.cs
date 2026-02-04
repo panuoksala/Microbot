@@ -101,6 +101,11 @@ public class SkillsConfig
     /// Slack skill configuration.
     /// </summary>
     public SlackSkillConfig Slack { get; set; } = new();
+
+    /// <summary>
+    /// YouTrack skill configuration.
+    /// </summary>
+    public YouTrackSkillConfig YouTrack { get; set; } = new();
 }
 
 /// <summary>
@@ -205,6 +210,33 @@ public class SlackSkillConfig
     /// Path to store read state (last read timestamps).
     /// </summary>
     public string ReadStatePath { get; set; } = "./slack-read-state.json";
+}
+
+/// <summary>
+/// Configuration for the YouTrack skill.
+/// </summary>
+public class YouTrackSkillConfig
+{
+    /// <summary>
+    /// Whether the YouTrack skill is enabled.
+    /// </summary>
+    public bool Enabled { get; set; } = false;
+
+    /// <summary>
+    /// The permission mode for the YouTrack skill: "ReadOnly" or "FullControl".
+    /// </summary>
+    public string Mode { get; set; } = "ReadOnly";
+
+    /// <summary>
+    /// The YouTrack server base URL (e.g., "https://youtrack.example.com" or "https://example.youtrack.cloud").
+    /// </summary>
+    public string? BaseUrl { get; set; }
+
+    /// <summary>
+    /// The permanent token for authentication.
+    /// Generate this in YouTrack: Profile -> Account Security -> Tokens -> New Token.
+    /// </summary>
+    public string? PermanentToken { get; set; }
 }
 
 /// <summary>

@@ -40,7 +40,8 @@ Microbot/
 │   ├── implementation-plan.md   # Detailed implementation guide
 │   ├── agentic-loop-implementation.md # Agentic loop safety mechanisms
 │   ├── memory-system-implementation.md # Long-term memory system
-│   └── outlook-skill-implementation.md # Outlook skill implementation details
+│   ├── outlook-skill-implementation.md # Outlook skill implementation details
+│   └── youtrack-skill-implementation.md # YouTrack skill implementation details
 ├── memory/                      # Memory storage folder
 │   └── sessions/                # Session transcripts
 ├── skills/                      # Runtime skill folders
@@ -64,6 +65,7 @@ Microbot/
     ├── Microbot.Skills.Outlook/ # Outlook skill (Microsoft Graph integration)
     ├── Microbot.Skills.Slack/   # Slack skill (SlackNet integration)
     ├── Microbot.Skills.Teams/   # Teams skill (Microsoft Graph integration)
+    ├── Microbot.Skills.YouTrack/# YouTrack skill (JetBrains issue tracker)
     ├── Microbot.ServiceDefaults/# Aspire service defaults
     └── Microbot.AppHost/        # Aspire AppHost
 ```
@@ -136,6 +138,14 @@ Microbot/
   - Memory Semantic Kernel plugin
   - Console commands (/memory status, sync, search, sessions, save)
   - See plans/memory-system-implementation.md for details
+- ✅ YouTrack skill with JetBrains YouTrack integration
+  - Issue management (list, get, search, create, update)
+  - Comment management (list, add, update)
+  - Project listing and details
+  - Command execution (change state, assignee, priority, etc.)
+  - Permission modes: ReadOnly, FullControl
+  - Permanent token authentication
+  - See plans/youtrack-skill-implementation.md for details
 - 🔲 Teams skill with Microsoft Graph integration (planned)
   - Multi-tenant support (home + guest tenants)
   - Channel messages (read, send, reply)
