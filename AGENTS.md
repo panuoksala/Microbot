@@ -41,7 +41,8 @@ Microbot/
 │   ├── agentic-loop-implementation.md # Agentic loop safety mechanisms
 │   ├── memory-system-implementation.md # Long-term memory system
 │   ├── outlook-skill-implementation.md # Outlook skill implementation details
-│   └── youtrack-skill-implementation.md # YouTrack skill implementation details
+│   ├── youtrack-skill-implementation.md # YouTrack skill implementation details
+│   └── scheduling-skill-implementation.md # Scheduling skill implementation details
 ├── memory/                      # Memory storage folder
 │   └── sessions/                # Session transcripts
 ├── skills/                      # Runtime skill folders
@@ -63,6 +64,7 @@ Microbot/
     │   └── Sync/                # File watching and synchronization
     ├── Microbot.Skills/         # Skill loading infrastructure
     ├── Microbot.Skills.Outlook/ # Outlook skill (Microsoft Graph integration)
+    ├── Microbot.Skills.Scheduling/ # Scheduling skill (task automation)
     ├── Microbot.Skills.Slack/   # Slack skill (SlackNet integration)
     ├── Microbot.Skills.Teams/   # Teams skill (Microsoft Graph integration)
     ├── Microbot.Skills.YouTrack/# YouTrack skill (JetBrains issue tracker)
@@ -146,6 +148,16 @@ Microbot/
   - Permission modes: ReadOnly, FullControl
   - Permanent token authentication
   - See plans/youtrack-skill-implementation.md for details
+- ✅ Scheduling skill for task automation
+  - Recurring schedules (cron expressions: daily, weekly, monthly, etc.)
+  - One-time schedules (run once at specific date/time)
+  - Natural language parsing ("every day at 9am", "every monday at 10:00")
+  - SQLite database storage with EF Core
+  - Execution history tracking with status and duration
+  - Console commands (/schedule list, add, remove, enable, disable, history)
+  - AI-accessible via ScheduleSkill (Semantic Kernel plugin)
+  - Background executor with configurable check interval
+  - See plans/scheduling-skill-implementation.md for details
 - 🔲 Teams skill with Microsoft Graph integration (planned)
   - Multi-tenant support (home + guest tenants)
   - Channel messages (read, send, reply)

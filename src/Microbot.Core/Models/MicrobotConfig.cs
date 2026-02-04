@@ -106,6 +106,11 @@ public class SkillsConfig
     /// YouTrack skill configuration.
     /// </summary>
     public YouTrackSkillConfig YouTrack { get; set; } = new();
+
+    /// <summary>
+    /// Scheduling skill configuration.
+    /// </summary>
+    public SchedulingSkillConfig Scheduling { get; set; } = new();
 }
 
 /// <summary>
@@ -237,6 +242,42 @@ public class YouTrackSkillConfig
     /// Generate this in YouTrack: Profile -> Account Security -> Tokens -> New Token.
     /// </summary>
     public string? PermanentToken { get; set; }
+}
+
+/// <summary>
+/// Configuration for the Scheduling skill.
+/// </summary>
+public class SchedulingSkillConfig
+{
+    /// <summary>
+    /// Whether the Scheduling skill is enabled.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Path to the SQLite database file for schedules.
+    /// </summary>
+    public string DatabasePath { get; set; } = "./schedules.db";
+
+    /// <summary>
+    /// How often to check for due schedules (in seconds).
+    /// </summary>
+    public int CheckIntervalSeconds { get; set; } = 60;
+
+    /// <summary>
+    /// Maximum execution time for a scheduled task (in seconds).
+    /// </summary>
+    public int ExecutionTimeoutSeconds { get; set; } = 600;
+
+    /// <summary>
+    /// Maximum number of execution history entries to keep per schedule.
+    /// </summary>
+    public int MaxHistoryEntries { get; set; } = 100;
+
+    /// <summary>
+    /// Whether to run missed schedules on startup.
+    /// </summary>
+    public bool RunMissedOnStartup { get; set; } = false;
 }
 
 /// <summary>

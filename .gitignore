@@ -425,3 +425,6 @@ temp-calc/package-lock.json
 temp-calc/package.json
 memory/memory.db
 *.json
+schedules.db
+schedules.db-shm
+schedules.db-wal

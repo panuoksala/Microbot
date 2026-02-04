@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Microbot.Core\Microbot.Core.csproj" />
     <ProjectReference Include="..\Microbot.Skills\Microbot.Skills.csproj" />
+    <ProjectReference Include="..\Microbot.Skills.Scheduling\Microbot.Skills.Scheduling.csproj" />
     <ProjectReference Include="..\Microbot.Memory\Microbot.Memory.csproj" />
     <ProjectReference Include="..\Microbot.ServiceDefaults\Microbot.ServiceDefaults.csproj" />
   </ItemGroup>

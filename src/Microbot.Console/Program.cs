@@ -4,6 +4,9 @@ using Microbot.Core.Configuration;
 using Microbot.Core.Models;
 using Microbot.Memory;
 using Microbot.Memory.Interfaces;
+using Microbot.Skills.Loaders;
+using Microbot.Skills.Scheduling.Database.Entities;
+using Microbot.Skills.Scheduling.Services;
 using Spectre.Console;
 
 namespace Microbot.Console;
@@ -379,6 +382,10 @@ public class Program
 
             case "/memory":
                 await HandleMemoryCommandAsync(parts);
+                break;
+
+            case "/schedule":
+                await HandleScheduleCommandAsync(parts);
                 break;
 
             case "/clear":
@@ -1026,6 +1033,530 @@ public class Program
         else
         {
             AnsiConsole.MarkupLine("[yellow]Memory system is disabled. Use '/memory enable' to enable it.[/]");
+        }
+        AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// Handles /schedule subcommands for schedule management.
+    /// </summary>
+    /// <param name="parts">The command parts.</param>
+    private static async Task HandleScheduleCommandAsync(string[] parts)
+    {
+        if (parts.Length < 2)
+        {
+            DisplayScheduleHelp();
+            return;
+        }
+
+        var subCommand = parts[1].ToLowerInvariant();
+
+        // Get the schedule service from the agent service
+        var scheduleService = _agentService.ScheduleService;
+        if (scheduleService == null)
+        {
+            if (_config.Skills.Scheduling?.Enabled == true)
+            {
+                _ui.DisplayError("Scheduling system failed to initialize.");
+                _ui.DisplayInfo("Check your configuration in Microbot.config.");
+            }
+            else
+            {
+                _ui.DisplayWarning("Scheduling system is not enabled. Use '/schedule enable' to enable it.");
+            }
+            return;
+        }
+
+        switch (subCommand)
+        {
+            case "enable":
+                await EnableSchedulingAsync();
+                break;
+
+            case "disable":
+                await DisableSchedulingAsync();
+                break;
+
+            case "list":
+                await ListSchedulesAsync(scheduleService);
+                break;
+
+            case "add":
+                await AddScheduleAsync(parts, scheduleService);
+                break;
+
+            case "remove":
+            case "delete":
+                await RemoveScheduleAsync(parts, scheduleService);
+                break;
+
+            case "enable-schedule":
+                await EnableScheduleByIdAsync(parts, scheduleService);
+                break;
+
+            case "disable-schedule":
+                await DisableScheduleByIdAsync(parts, scheduleService);
+                break;
+
+            case "run":
+                await RunScheduleNowAsync(parts, scheduleService);
+                break;
+
+            case "history":
+                await ShowScheduleHistoryAsync(parts, scheduleService);
+                break;
+
+            case "help":
+            default:
+                DisplayScheduleHelp();
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Lists all schedules.
+    /// </summary>
+    private static async Task ListSchedulesAsync(IScheduleService scheduleService)
+    {
+        var schedules = await scheduleService.GetAllSchedulesAsync(includeCompleted: true, _cts.Token);
+
+        if (schedules.Count == 0)
+        {
+            _ui.DisplayInfo("No schedules configured.");
+            return;
+        }
+
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .AddColumn("[cyan]ID[/]")
+            .AddColumn("[cyan]Name[/]")
+            .AddColumn("[cyan]Type[/]")
+            .AddColumn("[cyan]Schedule[/]")
+            .AddColumn("[cyan]Status[/]")
+            .AddColumn("[cyan]Next Run[/]")
+            .AddColumn("[cyan]Command[/]");
+
+        foreach (var schedule in schedules)
+        {
+            var status = schedule.Enabled
+                ? (schedule.IsCompleted ? "[grey]Completed[/]" : "[green]Enabled[/]")
+                : "[yellow]Disabled[/]";
+            
+            var nextRun = schedule.NextRunAt.HasValue
+                ? schedule.NextRunAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+                : "[grey]N/A[/]";
+
+            var typeLabel = schedule.Type == ScheduleType.Once ? "[blue]Once[/]" : "[cyan]Recurring[/]";
+            
+            var commandPreview = schedule.Command.Length > 40
+                ? schedule.Command[..40] + "..."
+                : schedule.Command;
+
+            table.AddRow(
+                schedule.Id.ToString(),
+                Markup.Escape(schedule.Name),
+                typeLabel,
+                Markup.Escape(schedule.Schedule),
+                status,
+                nextRun,
+                Markup.Escape(commandPreview));
+        }
+
+        var panel = new Panel(table)
+        {
+            Header = new PanelHeader($"[cyan]Schedules ({schedules.Count})[/]"),
+            Border = BoxBorder.Rounded
+        };
+
+        AnsiConsole.Write(panel);
+        AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// Adds a new schedule.
+    /// </summary>
+    private static async Task AddScheduleAsync(string[] parts, IScheduleService scheduleService)
+    {
+        // Usage: /schedule add <name> <expression> <command>
+        // Example: /schedule add "daily-report" "every day at 9am" "Generate a daily summary report"
+        if (parts.Length < 5)
+        {
+            _ui.DisplayWarning("Usage: /schedule add <name> <expression> <command>");
+            _ui.DisplayInfo("Examples:");
+            _ui.DisplayInfo("  /schedule add daily-report \"every day at 9am\" \"Generate a daily summary report\"");
+            _ui.DisplayInfo("  /schedule add weekly-review \"every monday at 10am\" \"Review weekly tasks\"");
+            _ui.DisplayInfo("  /schedule add reminder \"once tomorrow at 3pm\" \"Remind me about the meeting\"");
+            _ui.DisplayInfo("  /schedule add cron-job \"0 9 * * *\" \"Run morning tasks\"");
+            return;
+        }
+
+        var name = parts[2];
+        
+        // Parse the expression and command - they might be quoted
+        var remainingArgs = string.Join(" ", parts.Skip(3));
+        var (expression, command) = ParseQuotedArguments(remainingArgs);
+
+        if (string.IsNullOrWhiteSpace(expression) || string.IsNullOrWhiteSpace(command))
+        {
+            _ui.DisplayWarning("Both expression and command are required.");
+            _ui.DisplayInfo("Use quotes for expressions or commands with spaces.");
+            return;
+        }
+
+        try
+        {
+            var schedule = await scheduleService.CreateScheduleAsync(name, expression, command, null, _cts.Token);
+            _ui.DisplaySuccess($"Schedule created with ID {schedule.Id}");
+            
+            if (schedule.NextRunAt.HasValue)
+            {
+                _ui.DisplayInfo($"Next run: {schedule.NextRunAt.Value.ToLocalTime():yyyy-MM-dd HH:mm}");
+            }
+        }
+        catch (ArgumentException ex)
+        {
+            _ui.DisplayError($"Invalid schedule: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Parses quoted arguments from a string.
+    /// </summary>
+    private static (string first, string second) ParseQuotedArguments(string input)
+    {
+        var result = new List<string>();
+        var current = new System.Text.StringBuilder();
+        var inQuotes = false;
+        var quoteChar = '"';
+
+        foreach (var c in input)
+        {
+            if ((c == '"' || c == '\'') && !inQuotes)
+            {
+                inQuotes = true;
+                quoteChar = c;
+            }
+            else if (c == quoteChar && inQuotes)
+            {
+                inQuotes = false;
+                if (current.Length > 0)
+                {
+                    result.Add(current.ToString());
+                    current.Clear();
+                }
+            }
+            else if (c == ' ' && !inQuotes)
+            {
+                if (current.Length > 0)
+                {
+                    result.Add(current.ToString());
+                    current.Clear();
+                }
+            }
+            else
+            {
+                current.Append(c);
+            }
+        }
+
+        if (current.Length > 0)
+        {
+            result.Add(current.ToString());
+        }
+
+        return result.Count >= 2
+            ? (result[0], string.Join(" ", result.Skip(1)))
+            : (result.FirstOrDefault() ?? "", "");
+    }
+
+    /// <summary>
+    /// Removes a schedule by ID.
+    /// </summary>
+    private static async Task RemoveScheduleAsync(string[] parts, IScheduleService scheduleService)
+    {
+        if (parts.Length < 3 || !int.TryParse(parts[2], out var id))
+        {
+            _ui.DisplayWarning("Usage: /schedule remove <id>");
+            _ui.DisplayInfo("Example: /schedule remove 1");
+            return;
+        }
+
+        var deleted = await scheduleService.RemoveScheduleAsync(id, _cts.Token);
+        if (deleted)
+        {
+            _ui.DisplaySuccess($"Schedule {id} removed.");
+        }
+        else
+        {
+            _ui.DisplayWarning($"Schedule {id} not found.");
+        }
+    }
+
+    /// <summary>
+    /// Enables a schedule by ID.
+    /// </summary>
+    private static async Task EnableScheduleByIdAsync(string[] parts, IScheduleService scheduleService)
+    {
+        if (parts.Length < 3 || !int.TryParse(parts[2], out var id))
+        {
+            _ui.DisplayWarning("Usage: /schedule enable-schedule <id>");
+            _ui.DisplayInfo("Example: /schedule enable-schedule 1");
+            return;
+        }
+
+        var schedule = await scheduleService.EnableScheduleAsync(id, _cts.Token);
+        if (schedule != null)
+        {
+            _ui.DisplaySuccess($"Schedule {id} enabled.");
+            if (schedule.NextRunAt.HasValue)
+            {
+                _ui.DisplayInfo($"Next run: {schedule.NextRunAt.Value.ToLocalTime():yyyy-MM-dd HH:mm}");
+            }
+        }
+        else
+        {
+            _ui.DisplayWarning($"Schedule {id} not found.");
+        }
+    }
+
+    /// <summary>
+    /// Disables a schedule by ID.
+    /// </summary>
+    private static async Task DisableScheduleByIdAsync(string[] parts, IScheduleService scheduleService)
+    {
+        if (parts.Length < 3 || !int.TryParse(parts[2], out var id))
+        {
+            _ui.DisplayWarning("Usage: /schedule disable-schedule <id>");
+            _ui.DisplayInfo("Example: /schedule disable-schedule 1");
+            return;
+        }
+
+        var schedule = await scheduleService.DisableScheduleAsync(id, _cts.Token);
+        if (schedule != null)
+        {
+            _ui.DisplaySuccess($"Schedule {id} disabled.");
+        }
+        else
+        {
+            _ui.DisplayWarning($"Schedule {id} not found.");
+        }
+    }
+
+    /// <summary>
+    /// Runs a schedule immediately.
+    /// </summary>
+    private static async Task RunScheduleNowAsync(string[] parts, IScheduleService scheduleService)
+    {
+        if (parts.Length < 3 || !int.TryParse(parts[2], out var id))
+        {
+            _ui.DisplayWarning("Usage: /schedule run <id>");
+            _ui.DisplayInfo("Example: /schedule run 1");
+            return;
+        }
+
+        var schedule = await scheduleService.GetScheduleAsync(id, _cts.Token);
+        if (schedule == null)
+        {
+            _ui.DisplayWarning($"Schedule {id} not found.");
+            return;
+        }
+
+        _ui.DisplayInfo($"Running schedule '{schedule.Name}'...");
+        _ui.DisplayInfo($"Command: {schedule.Command}");
+        AnsiConsole.WriteLine();
+
+        // Start execution tracking
+        var execution = await scheduleService.StartExecutionAsync(id, _cts.Token);
+
+        // Execute the command through the agent
+        try
+        {
+            string? response = null;
+            if (_config.Preferences.UseStreaming)
+            {
+                await _ui.DisplayStreamingResponseAsync(
+                    _agentService.ChatStreamingAsync(schedule.Command, _cts.Token),
+                    _config.Preferences.AgentName);
+            }
+            else
+            {
+                response = await _ui.WithSpinnerAsync(
+                    "Executing...",
+                    () => _agentService.ChatAsync(schedule.Command, _cts.Token));
+                _ui.DisplayAgentResponse(response, _config.Preferences.AgentName);
+            }
+
+            // Record successful execution
+            await scheduleService.CompleteExecutionAsync(execution.Id, response, _cts.Token);
+        }
+        catch (Exception ex)
+        {
+            _ui.DisplayError($"Execution failed: {ex.Message}");
+            await scheduleService.FailExecutionAsync(execution.Id, ExecutionStatus.Failed, ex.Message, _cts.Token);
+        }
+    }
+
+    /// <summary>
+    /// Shows execution history for a schedule.
+    /// </summary>
+    private static async Task ShowScheduleHistoryAsync(string[] parts, IScheduleService scheduleService)
+    {
+        if (parts.Length < 3 || !int.TryParse(parts[2], out var id))
+        {
+            _ui.DisplayWarning("Usage: /schedule history <id>");
+            _ui.DisplayInfo("Example: /schedule history 1");
+            return;
+        }
+
+        var schedule = await scheduleService.GetScheduleAsync(id, _cts.Token);
+        if (schedule == null)
+        {
+            _ui.DisplayWarning($"Schedule {id} not found.");
+            return;
+        }
+
+        var history = await scheduleService.GetExecutionHistoryAsync(id, 20, _cts.Token);
+
+        if (history.Count == 0)
+        {
+            _ui.DisplayInfo($"No execution history for schedule '{schedule.Name}'.");
+            return;
+        }
+
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .AddColumn("[cyan]Started At[/]")
+            .AddColumn("[cyan]Status[/]")
+            .AddColumn("[cyan]Duration[/]")
+            .AddColumn("[cyan]Error[/]");
+
+        foreach (var execution in history)
+        {
+            var status = execution.Status switch
+            {
+                ExecutionStatus.Completed => "[green]Success[/]",
+                ExecutionStatus.Failed => "[red]Failed[/]",
+                ExecutionStatus.Timeout => "[yellow]Timeout[/]",
+                ExecutionStatus.Running => "[blue]Running[/]",
+                _ => "[grey]Unknown[/]"
+            };
+            
+            var duration = execution.Duration.HasValue
+                ? $"{execution.Duration.Value.TotalSeconds:F1}s"
+                : "[grey]N/A[/]";
+            
+            var error = string.IsNullOrEmpty(execution.ErrorMessage)
+                ? "[grey]N/A[/]"
+                : Markup.Escape(execution.ErrorMessage.Length > 40
+                    ? execution.ErrorMessage[..40] + "..."
+                    : execution.ErrorMessage);
+
+            table.AddRow(
+                execution.StartedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+                status,
+                duration,
+                error);
+        }
+
+        var panel = new Panel(table)
+        {
+            Header = new PanelHeader($"[cyan]Execution History: {Markup.Escape(schedule.Name)}[/]"),
+            Border = BoxBorder.Rounded
+        };
+
+        AnsiConsole.Write(panel);
+        AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// Enables the scheduling system.
+    /// </summary>
+    private static async Task EnableSchedulingAsync()
+    {
+        if (_config.Skills.Scheduling?.Enabled == true)
+        {
+            _ui.DisplayInfo("Scheduling system is already enabled.");
+            return;
+        }
+
+        _config.Skills.Scheduling ??= new SchedulingSkillConfig();
+        _config.Skills.Scheduling.Enabled = true;
+        _config.Skills.Scheduling.DatabasePath = "./schedules/schedules.db";
+        _config.Skills.Scheduling.CheckIntervalSeconds = 60;
+
+        await _configService.SaveConfigurationAsync(_config);
+        _ui.DisplaySuccess("Scheduling system enabled.");
+        _ui.DisplayInfo("Configuration saved to Microbot.config.");
+        _ui.DisplayWarning("Please restart Microbot for the scheduling system to initialize.");
+    }
+
+    /// <summary>
+    /// Disables the scheduling system.
+    /// </summary>
+    private static async Task DisableSchedulingAsync()
+    {
+        if (_config.Skills.Scheduling?.Enabled != true)
+        {
+            _ui.DisplayInfo("Scheduling system is already disabled.");
+            return;
+        }
+
+        _config.Skills.Scheduling.Enabled = false;
+
+        await _configService.SaveConfigurationAsync(_config);
+        _ui.DisplaySuccess("Scheduling system disabled.");
+        _ui.DisplayInfo("Configuration saved to Microbot.config.");
+        _ui.DisplayInfo("Note: Existing schedules are preserved and will be available when re-enabled.");
+    }
+
+    /// <summary>
+    /// Displays help for /schedule commands.
+    /// </summary>
+    private static void DisplayScheduleHelp()
+    {
+        var table = new Table()
+            .Border(TableBorder.None)
+            .HideHeaders()
+            .AddColumn("Command")
+            .AddColumn("Description");
+
+        table.AddRow("[cyan]/schedule enable[/]", "Enable scheduling system");
+        table.AddRow("[cyan]/schedule disable[/]", "Disable scheduling system (preserves schedules)");
+        table.AddRow("[cyan]/schedule list[/]", "List all schedules");
+        table.AddRow("[cyan]/schedule add <name> <expr> <cmd>[/]", "Add a new schedule");
+        table.AddRow("[cyan]/schedule remove <id>[/]", "Remove a schedule by ID");
+        table.AddRow("[cyan]/schedule enable-schedule <id>[/]", "Enable a schedule by ID");
+        table.AddRow("[cyan]/schedule disable-schedule <id>[/]", "Disable a schedule by ID");
+        table.AddRow("[cyan]/schedule run <id>[/]", "Run a schedule immediately");
+        table.AddRow("[cyan]/schedule history <id>[/]", "Show execution history for a schedule");
+
+        var panel = new Panel(table)
+        {
+            Header = new PanelHeader("[cyan]Schedule Commands[/]"),
+            Border = BoxBorder.Rounded,
+            Padding = new Padding(2, 1)
+        };
+
+        AnsiConsole.Write(panel);
+        AnsiConsole.WriteLine();
+
+        AnsiConsole.MarkupLine("[cyan]Schedule Expression Examples:[/]");
+        AnsiConsole.MarkupLine("  [grey]Recurring:[/] \"every day at 9am\", \"every monday at 10am\", \"0 9 * * *\"");
+        AnsiConsole.MarkupLine("  [grey]One-time:[/] \"once tomorrow at 3pm\", \"once in 2 hours\", \"once 2024-12-25 10:00\"");
+        AnsiConsole.WriteLine();
+
+        var scheduleEnabled = _agentService.ScheduleService != null;
+        if (scheduleEnabled)
+        {
+            AnsiConsole.MarkupLine("[green]Scheduling system is enabled and running.[/]");
+        }
+        else if (_config.Skills.Scheduling?.Enabled == true)
+        {
+            AnsiConsole.MarkupLine("[red]Scheduling system is enabled but failed to initialize.[/]");
+        }
+        else
+        {
+            AnsiConsole.MarkupLine("[yellow]Scheduling system is disabled. Use '/schedule enable' to enable it.[/]");
         }
         AnsiConsole.WriteLine();
     }

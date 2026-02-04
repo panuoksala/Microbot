@@ -15,6 +15,9 @@ using Microbot.Memory.Sessions;
 using Microbot.Memory.Skills;
 using Microbot.Memory.Sync;
 using Microbot.Skills;
+using Microbot.Skills.Scheduling;
+using Microbot.Skills.Scheduling.Database;
+using Microbot.Skills.Scheduling.Services;
 using AgentResponseItem = Microsoft.SemanticKernel.Agents.AgentResponseItem<Microsoft.SemanticKernel.StreamingChatMessageContent>;
 
 /// <summary>
@@ -35,6 +38,9 @@ public class AgentService : IAsyncDisposable
     private TimeoutFilter? _timeoutFilter;
     private MemoryManager? _memoryManager;
     private MemorySyncService? _memorySyncService;
+    private ScheduleDbContext? _scheduleDbContext;
+    private IScheduleService? _scheduleService;
+    private ScheduleExecutorService? _scheduleExecutorService;
     private SessionTranscript? _currentSession;
     private string? _currentSessionKey;
     private bool _disposed;
@@ -54,6 +60,11 @@ public class AgentService : IAsyncDisposable
     /// Gets the memory manager.
     /// </summary>
     public IMemoryManager? MemoryManager => _memoryManager;
+
+    /// <summary>
+    /// Gets the schedule service for managing scheduled tasks.
+    /// </summary>
+    public IScheduleService? ScheduleService => _scheduleService;
 
     /// <summary>
     /// Gets the safety filter for subscribing to lifecycle events.
@@ -152,6 +163,9 @@ public class AgentService : IAsyncDisposable
 
         // Initialize memory system if enabled
         await InitializeMemoryAsync(cancellationToken);
+
+        // Initialize scheduling system if enabled
+        await InitializeSchedulingAsync(cancellationToken);
 
         // Configure function choice behavior options
         var functionChoiceOptions = new FunctionChoiceBehaviorOptions
@@ -280,6 +294,97 @@ public class AgentService : IAsyncDisposable
             MemoryInitializationError = ex.Message;
             _memoryManager = null;
             _memorySyncService = null;
+        }
+    }
+
+    /// <summary>
+    /// Initializes the scheduling system if enabled in configuration.
+    /// </summary>
+    private async Task InitializeSchedulingAsync(CancellationToken cancellationToken)
+    {
+        var schedulingConfig = _config.Skills.Scheduling;
+        
+        if (schedulingConfig?.Enabled != true)
+        {
+            _logger?.LogInformation("Scheduling system is disabled");
+            return;
+        }
+
+        _logger?.LogInformation("Initializing scheduling system...");
+
+        try
+        {
+            // Ensure the database directory exists
+            var dbPath = schedulingConfig.DatabasePath ?? "./schedules/schedules.db";
+            var dbDir = Path.GetDirectoryName(dbPath);
+            if (!string.IsNullOrEmpty(dbDir) && !Directory.Exists(dbDir))
+            {
+                Directory.CreateDirectory(dbDir);
+            }
+
+            // Create database context
+            _scheduleDbContext = new ScheduleDbContext(dbPath);
+            
+            // Initialize the database (creates tables)
+            await _scheduleDbContext.InitializeAsync(cancellationToken);
+
+            // Create schedule service
+            _scheduleService = new ScheduleService(
+                _scheduleDbContext,
+                TimeZoneInfo.Local,
+                _loggerFactory?.CreateLogger<ScheduleService>());
+
+            // Register schedule skill with kernel
+            if (_kernel != null)
+            {
+                var scheduleSkill = new ScheduleSkill(_scheduleService);
+                _kernel.ImportPluginFromObject(scheduleSkill, "Scheduling");
+                _logger?.LogInformation("Scheduling skill registered with kernel");
+            }
+
+            // Create and start the executor service
+            var checkIntervalSeconds = schedulingConfig.CheckIntervalSeconds;
+            var executionTimeoutSeconds = _config.AgentLoop.RuntimeTimeoutSeconds;
+            _scheduleExecutorService = new ScheduleExecutorService(
+                _scheduleService,
+                ExecuteScheduledCommandAsync,
+                checkIntervalSeconds,
+                executionTimeoutSeconds,
+                TimeZoneInfo.Local,
+                _loggerFactory?.CreateLogger<ScheduleExecutorService>());
+
+            _logger?.LogInformation("Schedule executor service started with {Interval}s check interval",
+                schedulingConfig.CheckIntervalSeconds);
+
+            _logger?.LogInformation("Scheduling system initialized successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to initialize scheduling system. Scheduling features will be disabled.");
+            _scheduleDbContext?.Dispose();
+            _scheduleDbContext = null;
+            _scheduleService = null;
+            _scheduleExecutorService = null;
+        }
+    }
+
+    /// <summary>
+    /// Executes a scheduled command through the agent.
+    /// </summary>
+    private async Task<string> ExecuteScheduledCommandAsync(string command, CancellationToken cancellationToken)
+    {
+        _logger?.LogInformation("Executing scheduled command: {Command}", command);
+        
+        try
+        {
+            // Execute the command through the agent
+            var response = await ChatAsync(command, cancellationToken);
+            return response;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to execute scheduled command: {Command}", command);
+            throw;
         }
     }
 
@@ -712,6 +817,12 @@ public class AgentService : IAsyncDisposable
         {
             _logger?.LogError(ex, "Error saving session during dispose");
         }
+
+        // Dispose schedule executor service
+        _scheduleExecutorService?.Dispose();
+
+        // Dispose schedule database context
+        _scheduleDbContext?.Dispose();
 
         // Dispose memory sync service
         _memorySyncService?.Dispose();
