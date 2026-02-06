@@ -133,7 +133,7 @@ public class OutlookSkill
         string emailId,
         CancellationToken cancellationToken = default)
     {
-        _logger?.LogInformation("Getting email: {EmailId}", emailId);
+        _logger?.LogInformation("Getting email by ID");
 
         var client = await GetClientAsync(cancellationToken);
 
