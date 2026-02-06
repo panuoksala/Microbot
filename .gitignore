@@ -428,3 +428,5 @@ memory/memory.db
 schedules.db
 schedules.db-shm
 schedules.db-wal
+memory/memory.db-wal
+memory/memory.db-shm
