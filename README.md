@@ -115,15 +115,18 @@ Microbot stores its configuration in `Microbot.config` (JSON format). This file 
 
 | Command | Description |
 |---------|-------------|
-| `/help` | Show available commands |
-| `/skills` | List loaded skills and their functions |
+| `/help` | Show this help message |
+| `/skills` | List loaded skills |
+| `/skills avail` | List all available skills with status |
+| `/skills config <name>` | Configure a skill (e.g., `/skills config outlook`) |
+| `/mcp list` | List MCP servers from the registry |
+| `/mcp install <name>` | Install an MCP server from the registry |
+| `/mcp info <name>` | Show details about an MCP server |
+| `/memory` | Memory system commands (status, sync, search, sessions) |
+| `/schedule` | Schedule commands (list, add, once, remove, enable, disable, history) |
 | `/clear` | Clear the screen and chat history |
-| `/config` | Show/edit current configuration |
-| `/history` | Show chat history message count |
+| `/config` | Show current configuration |
 | `/reload` | Reload configuration from file |
-| `/memory status` | Show memory system status |
-| `/memory search <query>` | Search long-term memory |
-| `/schedule list` | List scheduled tasks |
 | `/exit` | Exit the application |
 
 ### Adding Skills
