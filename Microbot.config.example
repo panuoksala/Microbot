@@ -1,0 +1,116 @@
+{
+  "version": "1.0",
+  "aiProvider": {
+    "provider": "AzureOpenAI",
+    "modelId": "gpt-4o",
+    "endpoint": "https://your-resource.openai.azure.com/",
+    "apiKey": "your-api-key-here"
+  },
+  "skills": {
+    "mcpFolder": "./skills/mcp",
+    "nuGetFolder": "./skills/nuget",
+    "mcpServers": [
+      {
+        "name": "example-server",
+        "description": "Example MCP server (disabled by default)",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-example"],
+        "env": {
+          "API_KEY": "${env:EXAMPLE_API_KEY}"
+        },
+        "enabled": false
+      }
+    ],
+    "nuGetSkills": [],
+    "outlook": {
+      "enabled": false,
+      "mode": "ReadOnly",
+      "clientId": "your-azure-ad-app-client-id",
+      "tenantId": "common",
+      "authenticationMethod": "DeviceCode",
+      "redirectUri": "http://localhost"
+    },
+    "teams": {
+      "enabled": false,
+      "mode": "ReadOnly",
+      "clientId": "your-azure-ad-app-client-id",
+      "tenantId": "common",
+      "authenticationMethod": "DeviceCode",
+      "redirectUri": "http://localhost"
+    },
+    "slack": {
+      "enabled": false,
+      "mode": "ReadOnly",
+      "botToken": "xoxb-your-bot-token-here",
+      "appToken": null,
+      "readStatePath": "./slack-read-state.json"
+    },
+    "youTrack": {
+      "enabled": false,
+      "mode": "ReadOnly",
+      "baseUrl": "https://your-instance.youtrack.cloud",
+      "permanentToken": "perm:your-permanent-token-here"
+    },
+    "scheduling": {
+      "enabled": true,
+      "databasePath": "./schedules.db",
+      "checkIntervalSeconds": 60,
+      "executionTimeoutSeconds": 600,
+      "maxHistoryEntries": 100,
+      "runMissedOnStartup": false
+    }
+  },
+  "preferences": {
+    "agentName": "Microbot",
+    "theme": "default",
+    "verboseLogging": false,
+    "maxHistoryMessages": 100,
+    "useStreaming": true
+  },
+  "agentLoop": {
+    "maxIterations": 10,
+    "maxTotalFunctionCalls": 50,
+    "waitTimeoutSeconds": 30,
+    "runtimeTimeoutSeconds": 600,
+    "functionTimeoutSeconds": 30,
+    "allowConcurrentInvocation": false,
+    "showFunctionCallProgress": true,
+    "enableLifecycleEvents": true,
+    "enableAutoCompaction": false,
+    "compactionThreshold": 100
+  },
+  "memory": {
+    "enabled": true,
+    "databasePath": "./memory/microbot-memory.db",
+    "memoryFolder": "./memory",
+    "sessionsFolder": "./memory/sessions",
+    "embedding": {
+      "provider": null,
+      "modelId": "text-embedding-3-small",
+      "dimensions": null,
+      "endpoint": null,
+      "apiKey": null
+    },
+    "chunking": {
+      "maxTokens": 512,
+      "overlapTokens": 50,
+      "markdownAware": true
+    },
+    "search": {
+      "maxResults": 10,
+      "minScore": 0.5,
+      "vectorWeight": 0.7,
+      "textWeight": 0.3,
+      "includeSessions": true,
+      "includeMemoryFiles": true
+    },
+    "sync": {
+      "enableFileWatching": true,
+      "debounceMs": 1000,
+      "syncIntervalSeconds": 300,
+      "autoSyncSessions": true,
+      "sessionSyncBytesThreshold": 1024,
+      "sessionSyncMessagesThreshold": 5
+    }
+  }
+}
