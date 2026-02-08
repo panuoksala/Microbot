@@ -120,6 +120,7 @@ Microbot/
   - Function call limiting (max 50 calls per request)
   - Runtime timeout (600 seconds default)
   - Function timeout (30 seconds per function)
+  - Rate limit handling with automatic retry (HTTP 429)
   - Lifecycle events for monitoring
   - Progress display in console
   - System prompt safety guidelines

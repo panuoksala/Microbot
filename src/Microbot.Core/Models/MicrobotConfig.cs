@@ -598,6 +598,48 @@ public class AgentLoopConfig
     /// Default: 100
     /// </summary>
     public int CompactionThreshold { get; set; } = 100;
+
+    /// <summary>
+    /// Rate limit handling configuration.
+    /// </summary>
+    public RateLimitConfig RateLimit { get; set; } = new();
+}
+
+/// <summary>
+/// Configuration for rate limit handling and retry behavior.
+/// </summary>
+public class RateLimitConfig
+{
+    /// <summary>
+    /// Whether to automatically retry on rate limit errors (HTTP 429).
+    /// Default: true
+    /// </summary>
+    public bool EnableRetry { get; set; } = true;
+
+    /// <summary>
+    /// Maximum number of retry attempts for rate limit errors.
+    /// Default: 3
+    /// </summary>
+    public int MaxRetries { get; set; } = 3;
+
+    /// <summary>
+    /// Default wait time in seconds when Retry-After header is not provided.
+    /// Default: 30 seconds
+    /// </summary>
+    public int DefaultWaitSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// Maximum wait time in seconds for a single retry.
+    /// If Retry-After exceeds this, the request will fail.
+    /// Default: 120 seconds (2 minutes)
+    /// </summary>
+    public int MaxWaitSeconds { get; set; } = 120;
+
+    /// <summary>
+    /// Whether to show a countdown message while waiting for rate limit.
+    /// Default: true
+    /// </summary>
+    public bool ShowWaitProgress { get; set; } = true;
 }
 
 /// <summary>

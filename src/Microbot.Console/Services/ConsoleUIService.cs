@@ -517,5 +517,47 @@ public class ConsoleUIService
         }
     }
 
+    /// <summary>
+    /// Displays a rate limit wait notification with countdown.
+    /// </summary>
+    /// <param name="e">The rate limit wait event args.</param>
+    public void DisplayRateLimitWait(RateLimitWaitEventArgs e)
+    {
+        AnsiConsole.MarkupLine($"  [yellow]⏳[/] [yellow]Rate limit reached. Waiting {e.WaitSeconds}s before retry {e.RetryAttempt}/{e.MaxRetries}...[/]");
+    }
+
+    /// <summary>
+    /// Displays a rate limit wait with a progress countdown.
+    /// </summary>
+    /// <param name="waitSeconds">Number of seconds to wait.</param>
+    /// <param name="retryAttempt">Current retry attempt.</param>
+    /// <param name="maxRetries">Maximum retries allowed.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public async Task DisplayRateLimitCountdownAsync(
+        int waitSeconds,
+        int retryAttempt,
+        int maxRetries,
+        CancellationToken cancellationToken = default)
+    {
+        await AnsiConsole.Progress()
+            .AutoClear(true)
+            .HideCompleted(true)
+            .Columns(
+                new TaskDescriptionColumn(),
+                new ProgressBarColumn(),
+                new RemainingTimeColumn(),
+                new SpinnerColumn())
+            .StartAsync(async ctx =>
+            {
+                var task = ctx.AddTask($"[yellow]Rate limit - waiting before retry {retryAttempt}/{maxRetries}[/]", maxValue: waitSeconds);
+                
+                for (int i = 0; i < waitSeconds && !cancellationToken.IsCancellationRequested; i++)
+                {
+                    await Task.Delay(1000, cancellationToken);
+                    task.Increment(1);
+                }
+            });
+    }
+
     #endregion
 }

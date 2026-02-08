@@ -294,6 +294,11 @@ public class Program
         {
             _ui.DisplayFunctionTimeout(e);
         };
+
+        _agentService.RateLimitWaiting += (sender, e) =>
+        {
+            _ui.DisplayRateLimitWait(e);
+        };
     }
 
     /// <summary>

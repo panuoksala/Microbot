@@ -1,5 +1,7 @@
 namespace Microbot.Console.Services;
 
+using System.ClientModel;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
@@ -90,6 +92,11 @@ public class AgentService : IAsyncDisposable
     /// Event raised when a function times out.
     /// </summary>
     public event EventHandler<FunctionTimeoutEventArgs>? FunctionTimedOut;
+
+    /// <summary>
+    /// Event raised when rate limit is encountered and waiting begins.
+    /// </summary>
+    public event EventHandler<RateLimitWaitEventArgs>? RateLimitWaiting;
 
     /// <summary>
     /// Creates a new AgentService instance.
@@ -556,8 +563,89 @@ public class AgentService : IAsyncDisposable
     }
 
     /// <summary>
+    /// Parses the retry-after value from a rate limit exception message.
+    /// </summary>
+    /// <param name="exception">The exception to parse.</param>
+    /// <returns>The number of seconds to wait, or null if not found.</returns>
+    private int? ParseRetryAfterSeconds(Exception exception)
+    {
+        var message = exception.Message;
+        
+        // Try to parse "retry after X seconds" pattern from the error message
+        var retryAfterMatch = Regex.Match(message, @"retry after (\d+) seconds?", RegexOptions.IgnoreCase);
+        if (retryAfterMatch.Success && int.TryParse(retryAfterMatch.Groups[1].Value, out var seconds))
+        {
+            return seconds;
+        }
+
+        // Try to parse "Retry-After: X" header pattern
+        var headerMatch = Regex.Match(message, @"Retry-After:\s*(\d+)", RegexOptions.IgnoreCase);
+        if (headerMatch.Success && int.TryParse(headerMatch.Groups[1].Value, out seconds))
+        {
+            return seconds;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Checks if an exception is a rate limit error (HTTP 429).
+    /// </summary>
+    /// <param name="exception">The exception to check.</param>
+    /// <returns>True if this is a rate limit error.</returns>
+    private static bool IsRateLimitException(Exception exception)
+    {
+        // Check for ClientResultException with 429 status
+        if (exception is ClientResultException clientEx)
+        {
+            return clientEx.Message.Contains("429") ||
+                   clientEx.Message.Contains("RateLimitReached", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Check the message for rate limit indicators
+        var message = exception.Message;
+        return message.Contains("429") ||
+               message.Contains("rate limit", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("RateLimitReached", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("exceeded the token rate limit", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Waits for the specified duration with progress updates.
+    /// </summary>
+    /// <param name="sessionId">The session ID for event tracking.</param>
+    /// <param name="waitSeconds">Number of seconds to wait.</param>
+    /// <param name="retryAttempt">Current retry attempt number.</param>
+    /// <param name="maxRetries">Maximum number of retries.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    private async Task WaitForRateLimitAsync(
+        string sessionId,
+        int waitSeconds,
+        int retryAttempt,
+        int maxRetries,
+        CancellationToken cancellationToken)
+    {
+        var message = $"Rate limit reached. Waiting {waitSeconds} seconds before retry {retryAttempt}/{maxRetries}...";
+        
+        _logger?.LogWarning(
+            "Rate limit encountered for {SessionId}. Waiting {WaitSeconds}s (attempt {Attempt}/{MaxRetries})",
+            sessionId, waitSeconds, retryAttempt, maxRetries);
+
+        // Raise event for UI to display progress
+        RateLimitWaiting?.Invoke(this, new RateLimitWaitEventArgs(
+            sessionId,
+            waitSeconds,
+            retryAttempt,
+            maxRetries,
+            message));
+
+        // Wait for the specified duration
+        await Task.Delay(TimeSpan.FromSeconds(waitSeconds), cancellationToken);
+    }
+
+    /// <summary>
     /// Sends a message to the agent and gets a response.
-    /// Implements runtime timeout and safety tracking for the agentic loop.
+    /// Implements runtime timeout, safety tracking, and rate limit handling for the agentic loop.
     /// </summary>
     /// <param name="userMessage">The user's message.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -577,69 +665,121 @@ public class AgentService : IAsyncDisposable
         // Start new request tracking in safety filter
         _safetyFilter?.StartNewRequest(sessionId, userMessage);
 
-        // Create runtime timeout - this is the overall timeout for the entire request
-        using var runtimeTimeoutCts = new CancellationTokenSource(
-            TimeSpan.FromSeconds(_config.AgentLoop.RuntimeTimeoutSeconds));
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
-            cancellationToken, runtimeTimeoutCts.Token);
+        var rateLimitConfig = _config.AgentLoop.RateLimit;
+        var retryAttempt = 0;
+        var userMessageAdded = false;
 
-        try
+        while (true)
         {
-            // Add user message to history
-            _chatHistory.AddUserMessage(userMessage);
+            // Create runtime timeout - this is the overall timeout for the entire request
+            using var runtimeTimeoutCts = new CancellationTokenSource(
+                TimeSpan.FromSeconds(_config.AgentLoop.RuntimeTimeoutSeconds));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken, runtimeTimeoutCts.Token);
 
-            // Get response from agent
-            var response = new System.Text.StringBuilder();
-            var iterationCount = 0;
-            
-            await foreach (var message in _agent.InvokeAsync(_chatHistory, cancellationToken: linkedCts.Token))
+            try
             {
-                iterationCount++;
-                var content = message.Message.Content;
-                if (content != null)
+                // Add user message to history only on first attempt
+                if (!userMessageAdded)
                 {
-                    response.Append(content);
+                    _chatHistory.AddUserMessage(userMessage);
+                    userMessageAdded = true;
                 }
+
+                // Get response from agent
+                var response = new System.Text.StringBuilder();
+                var iterationCount = 0;
                 
-                // Add agent response to history
-                _chatHistory.Add(message.Message);
+                await foreach (var message in _agent.InvokeAsync(_chatHistory, cancellationToken: linkedCts.Token))
+                {
+                    iterationCount++;
+                    var content = message.Message.Content;
+                    if (content != null)
+                    {
+                        response.Append(content);
+                    }
+                    
+                    // Add agent response to history
+                    _chatHistory.Add(message.Message);
+                }
+
+                var responseText = response.ToString();
+                
+                // Signal completion to safety filter
+                _safetyFilter?.CompleteRequest(responseText, iterationCount);
+                
+                // Record conversation turn in session
+                RecordConversationTurn(userMessage, responseText);
+                
+                _logger?.LogDebug("Request {SessionId} completed. Response: {Response}", sessionId, responseText);
+
+                return responseText;
             }
+            catch (OperationCanceledException) when (runtimeTimeoutCts.IsCancellationRequested)
+            {
+                _logger?.LogWarning(
+                    "Request {SessionId} timed out after {Timeout} seconds (runtime timeout)",
+                    sessionId, _config.AgentLoop.RuntimeTimeoutSeconds);
+                
+                // Signal failure to safety filter
+                _safetyFilter?.FailRequest(
+                    AgentLoopErrorType.RequestTimeout,
+                    $"Runtime timeout after {_config.AgentLoop.RuntimeTimeoutSeconds} seconds",
+                    0);
+                
+                // Add a message to history indicating timeout
+                var timeoutMessage = $"[Request timed out after {_config.AgentLoop.RuntimeTimeoutSeconds} seconds. The operation was taking too long to complete.]";
+                _chatHistory.AddAssistantMessage(timeoutMessage);
+                
+                return timeoutMessage;
+            }
+            catch (Exception ex) when (IsRateLimitException(ex) && rateLimitConfig.EnableRetry)
+            {
+                retryAttempt++;
+                
+                if (retryAttempt > rateLimitConfig.MaxRetries)
+                {
+                    _logger?.LogError(
+                        "Rate limit retry exhausted for {SessionId} after {Attempts} attempts",
+                        sessionId, rateLimitConfig.MaxRetries);
+                    
+                    // Signal failure to safety filter
+                    _safetyFilter?.FailRequest(
+                        AgentLoopErrorType.RateLimitExceeded,
+                        $"Rate limit exceeded after {rateLimitConfig.MaxRetries} retry attempts",
+                        0);
+                    
+                    var errorMessage = $"[Rate limit exceeded. Maximum retry attempts ({rateLimitConfig.MaxRetries}) exhausted. Please try again later.]";
+                    _chatHistory.AddAssistantMessage(errorMessage);
+                    
+                    return errorMessage;
+                }
 
-            var responseText = response.ToString();
-            
-            // Signal completion to safety filter
-            _safetyFilter?.CompleteRequest(responseText, iterationCount);
-            
-            // Record conversation turn in session
-            RecordConversationTurn(userMessage, responseText);
-            
-            _logger?.LogDebug("Request {SessionId} completed. Response: {Response}", sessionId, responseText);
+                // Parse wait time from exception or use default
+                var waitSeconds = ParseRetryAfterSeconds(ex) ?? rateLimitConfig.DefaultWaitSeconds;
+                
+                // Cap the wait time
+                if (waitSeconds > rateLimitConfig.MaxWaitSeconds)
+                {
+                    _logger?.LogWarning(
+                        "Rate limit wait time {WaitSeconds}s exceeds maximum {MaxWait}s for {SessionId}",
+                        waitSeconds, rateLimitConfig.MaxWaitSeconds, sessionId);
+                    
+                    var errorMessage = $"[Rate limit requires waiting {waitSeconds} seconds, which exceeds the maximum allowed wait time of {rateLimitConfig.MaxWaitSeconds} seconds. Please try again later.]";
+                    _chatHistory.AddAssistantMessage(errorMessage);
+                    
+                    return errorMessage;
+                }
 
-            return responseText;
-        }
-        catch (OperationCanceledException) when (runtimeTimeoutCts.IsCancellationRequested)
-        {
-            _logger?.LogWarning(
-                "Request {SessionId} timed out after {Timeout} seconds (runtime timeout)",
-                sessionId, _config.AgentLoop.RuntimeTimeoutSeconds);
-            
-            // Signal failure to safety filter
-            _safetyFilter?.FailRequest(
-                AgentLoopErrorType.RequestTimeout,
-                $"Runtime timeout after {_config.AgentLoop.RuntimeTimeoutSeconds} seconds",
-                0);
-            
-            // Add a message to history indicating timeout
-            var timeoutMessage = $"[Request timed out after {_config.AgentLoop.RuntimeTimeoutSeconds} seconds. The operation was taking too long to complete.]";
-            _chatHistory.AddAssistantMessage(timeoutMessage);
-            
-            return timeoutMessage;
+                // Wait and retry
+                await WaitForRateLimitAsync(sessionId, waitSeconds, retryAttempt, rateLimitConfig.MaxRetries, cancellationToken);
+            }
         }
     }
 
     /// <summary>
     /// Sends a message to the agent and streams the response.
-    /// Implements runtime timeout and safety tracking for the agentic loop.
+    /// Implements runtime timeout, safety tracking, and rate limit handling for the agentic loop.
     /// </summary>
     /// <param name="userMessage">The user's message.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -661,93 +801,172 @@ public class AgentService : IAsyncDisposable
         // Start new request tracking in safety filter
         _safetyFilter?.StartNewRequest(sessionId, userMessage);
 
-        // Create runtime timeout - this is the overall timeout for the entire request
-        using var runtimeTimeoutCts = new CancellationTokenSource(
-            TimeSpan.FromSeconds(_config.AgentLoop.RuntimeTimeoutSeconds));
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
-            cancellationToken, runtimeTimeoutCts.Token);
-
-        // Add user message to history
-        _chatHistory.AddUserMessage(userMessage);
-
+        var rateLimitConfig = _config.AgentLoop.RateLimit;
+        var retryAttempt = 0;
+        var userMessageAdded = false;
         var fullResponse = new System.Text.StringBuilder();
-        var timedOut = false;
-        string? errorMessage = null;
-        var iterationCount = 0;
+        var completed = false;
 
-        // We need to handle exceptions inside the async enumerable
-        IAsyncEnumerator<AgentResponseItem<StreamingChatMessageContent>>? enumerator = null;
-        
-        try
+        while (!completed)
         {
-            enumerator = _agent.InvokeStreamingAsync(_chatHistory, cancellationToken: linkedCts.Token)
-                .GetAsyncEnumerator(linkedCts.Token);
+            // Create runtime timeout - this is the overall timeout for the entire request
+            using var runtimeTimeoutCts = new CancellationTokenSource(
+                TimeSpan.FromSeconds(_config.AgentLoop.RuntimeTimeoutSeconds));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken, runtimeTimeoutCts.Token);
 
-            while (true)
+            // Add user message to history only on first attempt
+            if (!userMessageAdded)
             {
-                bool hasNext;
-                try
-                {
-                    hasNext = await enumerator.MoveNextAsync();
-                }
-                catch (OperationCanceledException) when (runtimeTimeoutCts.IsCancellationRequested)
-                {
-                    timedOut = true;
-                    errorMessage = $"\n\n[Request timed out after {_config.AgentLoop.RuntimeTimeoutSeconds} seconds]";
-                    break;
-                }
+                _chatHistory.AddUserMessage(userMessage);
+                userMessageAdded = true;
+            }
 
-                if (!hasNext)
-                    break;
+            var timedOut = false;
+            string? errorMessage = null;
+            var iterationCount = 0;
+            Exception? rateLimitException = null;
 
-                iterationCount++;
-                var content = enumerator.Current.Message.Content;
-                if (content != null)
+            // We need to handle exceptions inside the async enumerable
+            IAsyncEnumerator<AgentResponseItem<StreamingChatMessageContent>>? enumerator = null;
+            
+            try
+            {
+                enumerator = _agent.InvokeStreamingAsync(_chatHistory, cancellationToken: linkedCts.Token)
+                    .GetAsyncEnumerator(linkedCts.Token);
+
+                while (true)
                 {
-                    fullResponse.Append(content);
-                    yield return content;
+                    bool hasNext;
+                    try
+                    {
+                        hasNext = await enumerator.MoveNextAsync();
+                    }
+                    catch (OperationCanceledException) when (runtimeTimeoutCts.IsCancellationRequested)
+                    {
+                        timedOut = true;
+                        errorMessage = $"\n\n[Request timed out after {_config.AgentLoop.RuntimeTimeoutSeconds} seconds]";
+                        break;
+                    }
+                    catch (Exception ex) when (IsRateLimitException(ex) && rateLimitConfig.EnableRetry)
+                    {
+                        rateLimitException = ex;
+                        break;
+                    }
+
+                    if (!hasNext)
+                        break;
+
+                    iterationCount++;
+                    var content = enumerator.Current.Message.Content;
+                    if (content != null)
+                    {
+                        fullResponse.Append(content);
+                        yield return content;
+                    }
                 }
             }
-        }
-        finally
-        {
-            if (enumerator != null)
+            finally
             {
-                await enumerator.DisposeAsync();
+                if (enumerator != null)
+                {
+                    await enumerator.DisposeAsync();
+                }
             }
-        }
 
-        // Yield error message if there was one
-        if (errorMessage != null)
-        {
-            fullResponse.Append(errorMessage);
-            yield return errorMessage;
-        }
+            // Handle rate limit exception
+            if (rateLimitException != null)
+            {
+                retryAttempt++;
+                
+                if (retryAttempt > rateLimitConfig.MaxRetries)
+                {
+                    _logger?.LogError(
+                        "Rate limit retry exhausted for streaming {SessionId} after {Attempts} attempts",
+                        sessionId, rateLimitConfig.MaxRetries);
+                    
+                    // Signal failure to safety filter
+                    _safetyFilter?.FailRequest(
+                        AgentLoopErrorType.RateLimitExceeded,
+                        $"Rate limit exceeded after {rateLimitConfig.MaxRetries} retry attempts",
+                        iterationCount);
+                    
+                    var rateLimitErrorMessage = $"\n\n[Rate limit exceeded. Maximum retry attempts ({rateLimitConfig.MaxRetries}) exhausted. Please try again later.]";
+                    fullResponse.Append(rateLimitErrorMessage);
+                    yield return rateLimitErrorMessage;
+                    
+                    // Add the complete response to history
+                    _chatHistory.AddAssistantMessage(fullResponse.ToString());
+                    completed = true;
+                    continue;
+                }
 
-        // Add the complete response to history
-        _chatHistory.AddAssistantMessage(fullResponse.ToString());
+                // Parse wait time from exception or use default
+                var waitSeconds = ParseRetryAfterSeconds(rateLimitException) ?? rateLimitConfig.DefaultWaitSeconds;
+                
+                // Cap the wait time
+                if (waitSeconds > rateLimitConfig.MaxWaitSeconds)
+                {
+                    _logger?.LogWarning(
+                        "Rate limit wait time {WaitSeconds}s exceeds maximum {MaxWait}s for streaming {SessionId}",
+                        waitSeconds, rateLimitConfig.MaxWaitSeconds, sessionId);
+                    
+                    var maxWaitErrorMessage = $"\n\n[Rate limit requires waiting {waitSeconds} seconds, which exceeds the maximum allowed wait time of {rateLimitConfig.MaxWaitSeconds} seconds. Please try again later.]";
+                    fullResponse.Append(maxWaitErrorMessage);
+                    yield return maxWaitErrorMessage;
+                    
+                    // Add the complete response to history
+                    _chatHistory.AddAssistantMessage(fullResponse.ToString());
+                    completed = true;
+                    continue;
+                }
 
-        if (timedOut)
-        {
-            _logger?.LogWarning(
-                "Streaming request {SessionId} timed out after {Timeout} seconds",
-                sessionId, _config.AgentLoop.RuntimeTimeoutSeconds);
-            
-            // Signal failure to safety filter
-            _safetyFilter?.FailRequest(
-                AgentLoopErrorType.RequestTimeout,
-                $"Runtime timeout after {_config.AgentLoop.RuntimeTimeoutSeconds} seconds",
-                iterationCount);
-        }
-        else
-        {
-            _logger?.LogDebug("Streaming request {SessionId} completed successfully", sessionId);
-            
-            // Signal completion to safety filter
-            _safetyFilter?.CompleteRequest(fullResponse.ToString(), iterationCount);
-            
-            // Record conversation turn in session
-            RecordConversationTurn(userMessage, fullResponse.ToString());
+                // Yield a message about waiting
+                var waitMessage = $"\n\n[Rate limit reached. Waiting {waitSeconds} seconds before retry {retryAttempt}/{rateLimitConfig.MaxRetries}...]";
+                yield return waitMessage;
+
+                // Wait and retry
+                await WaitForRateLimitAsync(sessionId, waitSeconds, retryAttempt, rateLimitConfig.MaxRetries, cancellationToken);
+                
+                // Clear the response for retry (we'll start fresh)
+                fullResponse.Clear();
+                continue;
+            }
+
+            // Yield error message if there was one
+            if (errorMessage != null)
+            {
+                fullResponse.Append(errorMessage);
+                yield return errorMessage;
+            }
+
+            // Add the complete response to history
+            _chatHistory.AddAssistantMessage(fullResponse.ToString());
+
+            if (timedOut)
+            {
+                _logger?.LogWarning(
+                    "Streaming request {SessionId} timed out after {Timeout} seconds",
+                    sessionId, _config.AgentLoop.RuntimeTimeoutSeconds);
+                
+                // Signal failure to safety filter
+                _safetyFilter?.FailRequest(
+                    AgentLoopErrorType.RequestTimeout,
+                    $"Runtime timeout after {_config.AgentLoop.RuntimeTimeoutSeconds} seconds",
+                    iterationCount);
+            }
+            else
+            {
+                _logger?.LogDebug("Streaming request {SessionId} completed successfully", sessionId);
+                
+                // Signal completion to safety filter
+                _safetyFilter?.CompleteRequest(fullResponse.ToString(), iterationCount);
+                
+                // Record conversation turn in session
+                RecordConversationTurn(userMessage, fullResponse.ToString());
+            }
+
+            completed = true;
         }
     }
 

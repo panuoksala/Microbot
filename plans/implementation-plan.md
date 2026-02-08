@@ -1273,7 +1273,112 @@ This information is captured at agent initialization time and helps the agent:
 - Node.js must be installed for Playwright MCP to work
 - Browser skill fails gracefully if Node.js is not available
 
-### Phase 14: Teams Skill 🔲 PLANNED
+### Phase 14: Rate Limit Handling ✅ COMPLETED
+- [x] Add RateLimitConfig class to MicrobotConfig.cs
+- [x] Add RateLimitWaitEventArgs to AgentLoopEvents.cs
+- [x] Add RateLimitExceeded to AgentLoopErrorType enum
+- [x] Implement rate limit detection in AgentService (IsRateLimitException)
+- [x] Implement retry-after parsing from exception messages (ParseRetryAfterSeconds)
+- [x] Add retry logic to ChatAsync method with configurable max retries
+- [x] Add retry logic to ChatStreamingAsync method with configurable max retries
+- [x] Add RateLimitWaiting event to AgentService
+- [x] Add DisplayRateLimitWait method to ConsoleUIService
+- [x] Add DisplayRateLimitCountdownAsync method to ConsoleUIService
+- [x] Wire up RateLimitWaiting event in Program.cs
+
+#### Problem Description
+When using Azure OpenAI or other rate-limited AI providers, the application would crash with HTTP 429 errors:
+```
+Your requests to gpt-5.2-chat have exceeded the token rate limit for your current OpenAI S0 pricing tier.
+Please retry after 28 seconds.
+System.ClientModel.ClientResultException: HTTP 429 (: RateLimitReached)
+```
+
+#### Solution
+Implemented graceful rate limit handling with automatic retry:
+1. **Detection**: Checks for `ClientResultException` with 429 status or rate limit keywords
+2. **Parsing**: Extracts "retry after X seconds" from exception messages using regex
+3. **Waiting**: Waits the specified duration (or default) with UI feedback
+4. **Retry**: Retries the request up to the configured maximum retries
+5. **Graceful Failure**: If max retries exceeded, returns an error message instead of crashing
+
+#### Configuration Options (RateLimitConfig)
+| Option | Default | Description |
+|--------|---------|-------------|
+| `enableRetry` | `true` | Enable automatic retry on rate limit errors |
+| `maxRetries` | `3` | Maximum number of retry attempts |
+| `defaultWaitSeconds` | `30` | Default wait time when Retry-After not provided |
+| `maxWaitSeconds` | `120` | Maximum wait time (fails if Retry-After exceeds this) |
+| `showWaitProgress` | `true` | Show countdown message while waiting |
+
+#### Example Configuration
+```json
+{
+  "agentLoop": {
+    "rateLimit": {
+      "enableRetry": true,
+      "maxRetries": 3,
+      "defaultWaitSeconds": 30,
+      "maxWaitSeconds": 120,
+      "showWaitProgress": true
+    }
+  }
+}
+```
+
+#### Files Modified
+| File | Action | Description |
+|------|--------|-------------|
+| `Microbot.Core/Models/MicrobotConfig.cs` | Modified | Added RateLimitConfig class to AgentLoopConfig |
+| `Microbot.Core/Events/AgentLoopEvents.cs` | Modified | Added RateLimitWaitEventArgs and RateLimitExceeded enum |
+| `Microbot.Console/Services/AgentService.cs` | Modified | Added rate limit handling in ChatAsync and ChatStreamingAsync |
+| `Microbot.Console/Services/ConsoleUIService.cs` | Modified | Added DisplayRateLimitWait and DisplayRateLimitCountdownAsync |
+| `Microbot.Console/Program.cs` | Modified | Wired up RateLimitWaiting event handler |
+
+#### Key Code Changes
+```csharp
+// Rate limit detection
+private static bool IsRateLimitException(Exception exception)
+{
+    if (exception is ClientResultException clientEx)
+    {
+        return clientEx.Message.Contains("429") ||
+               clientEx.Message.Contains("RateLimitReached", StringComparison.OrdinalIgnoreCase);
+    }
+    return exception.Message.Contains("rate limit", StringComparison.OrdinalIgnoreCase);
+}
+
+// Retry-after parsing
+private int? ParseRetryAfterSeconds(Exception exception)
+{
+    var match = Regex.Match(exception.Message, @"retry after (\d+) seconds?", RegexOptions.IgnoreCase);
+    if (match.Success && int.TryParse(match.Groups[1].Value, out var seconds))
+        return seconds;
+    return null;
+}
+
+// Retry loop in ChatAsync
+while (true)
+{
+    try
+    {
+        // ... execute request ...
+        return responseText;
+    }
+    catch (Exception ex) when (IsRateLimitException(ex) && rateLimitConfig.EnableRetry)
+    {
+        retryAttempt++;
+        if (retryAttempt > rateLimitConfig.MaxRetries)
+        {
+            return "[Rate limit exceeded. Maximum retry attempts exhausted.]";
+        }
+        var waitSeconds = ParseRetryAfterSeconds(ex) ?? rateLimitConfig.DefaultWaitSeconds;
+        await WaitForRateLimitAsync(sessionId, waitSeconds, retryAttempt, rateLimitConfig.MaxRetries, cancellationToken);
+    }
+}
+```
+
+### Phase 15: Teams Skill 🔲 PLANNED
 - [ ] Create Microbot.Skills.Teams project
 - [ ] Implement TeamsSkillMode enum (ReadOnly, Full)
 - [ ] Add TeamsSkillConfig to MicrobotConfig

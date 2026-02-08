@@ -104,6 +104,16 @@ public record SafetyLimitReachedEventArgs(
     string Message);
 
 /// <summary>
+/// Event args for when rate limit is encountered and waiting begins.
+/// </summary>
+public record RateLimitWaitEventArgs(
+    string SessionId,
+    int WaitSeconds,
+    int RetryAttempt,
+    int MaxRetries,
+    string Message);
+
+/// <summary>
 /// Types of errors that can occur in the agent loop.
 /// </summary>
 public enum AgentLoopErrorType
@@ -136,7 +146,12 @@ public enum AgentLoopErrorType
     /// <summary>
     /// Unexpected exception occurred.
     /// </summary>
-    UnexpectedException
+    UnexpectedException,
+
+    /// <summary>
+    /// Rate limit exceeded and max retries exhausted.
+    /// </summary>
+    RateLimitExceeded
 }
 
 /// <summary>
