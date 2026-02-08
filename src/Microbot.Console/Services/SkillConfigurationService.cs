@@ -33,6 +33,7 @@ public class SkillConfigurationService
             "teams" => ConfigureTeamsSkill(config),
             "slack" => ConfigureSlackSkill(config),
             "youtrack" => ConfigureYouTrackSkill(config),
+            "browser" => ConfigureBrowserSkill(config),
             _ => HandleUnknownSkill(skillId)
         };
     }
@@ -583,6 +584,248 @@ public class SkillConfigurationService
                 $"[yellow]Important:[/] Store the token securely - it won't be shown again!"))
         {
             Header = new PanelHeader("[yellow]Setup Instructions[/]"),
+            Border = BoxBorder.Rounded,
+            Padding = new Padding(2, 1)
+        };
+
+        AnsiConsole.Write(panel);
+        AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// Configures the Browser skill (Playwright MCP).
+    /// </summary>
+    /// <param name="config">The configuration to update.</param>
+    /// <returns>True if configuration was successful, false if cancelled.</returns>
+    private bool ConfigureBrowserSkill(MicrobotConfig config)
+    {
+        AnsiConsole.Write(new Rule("[cyan]Browser Skill Configuration[/]").RuleStyle("grey"));
+        AnsiConsole.WriteLine();
+
+        // Show current configuration
+        DisplayCurrentBrowserConfig(config.Skills.Browser);
+
+        if (config.Skills.Browser?.Enabled == true)
+        {
+            if (!AnsiConsole.Confirm("[yellow]Do you want to reconfigure?[/]", false))
+            {
+                return false;
+            }
+            AnsiConsole.WriteLine();
+        }
+
+        // Ensure Browser config exists
+        config.Skills.Browser ??= new BrowserSkillConfig();
+
+        // Enable/Disable
+        var enable = AnsiConsole.Confirm(
+            "[cyan]Enable Browser skill?[/] (requires Node.js)",
+            config.Skills.Browser.Enabled);
+
+        if (!enable)
+        {
+            config.Skills.Browser.Enabled = false;
+            _ui.DisplaySuccess("Browser skill disabled.");
+            return true;
+        }
+
+        config.Skills.Browser.Enabled = true;
+
+        // Show prerequisites
+        DisplayBrowserPrerequisites();
+
+        // Browser selection
+        var browser = _ui.SelectOption(
+            "Select browser engine:",
+            new[] { "chromium", "firefox", "webkit" });
+        config.Skills.Browser.Browser = browser;
+
+        // Headless mode
+        var headless = AnsiConsole.Confirm(
+            "[cyan]Run in headless mode?[/] (no visible browser window)",
+            config.Skills.Browser.Headless);
+        config.Skills.Browser.Headless = headless;
+
+        // Viewport size
+        AnsiConsole.MarkupLine("[cyan]Configure viewport size:[/]");
+        config.Skills.Browser.ViewportWidth = AnsiConsole.Prompt(
+            new TextPrompt<int>("  Viewport width:")
+                .DefaultValue(config.Skills.Browser.ViewportWidth)
+                .Validate(w => w >= 320 && w <= 3840
+                    ? ValidationResult.Success()
+                    : ValidationResult.Error("Width must be between 320 and 3840")));
+
+        config.Skills.Browser.ViewportHeight = AnsiConsole.Prompt(
+            new TextPrompt<int>("  Viewport height:")
+                .DefaultValue(config.Skills.Browser.ViewportHeight)
+                .Validate(h => h >= 240 && h <= 2160
+                    ? ValidationResult.Success()
+                    : ValidationResult.Error("Height must be between 240 and 2160")));
+
+        // Timeouts
+        AnsiConsole.MarkupLine("[cyan]Configure timeouts (in milliseconds):[/]");
+        config.Skills.Browser.ActionTimeoutMs = AnsiConsole.Prompt(
+            new TextPrompt<int>("  Action timeout (ms):")
+                .DefaultValue(config.Skills.Browser.ActionTimeoutMs)
+                .Validate(t => t >= 1000 && t <= 300000
+                    ? ValidationResult.Success()
+                    : ValidationResult.Error("Timeout must be between 1000 and 300000 ms")));
+
+        config.Skills.Browser.NavigationTimeoutMs = AnsiConsole.Prompt(
+            new TextPrompt<int>("  Navigation timeout (ms):")
+                .DefaultValue(config.Skills.Browser.NavigationTimeoutMs)
+                .Validate(t => t >= 1000 && t <= 300000
+                    ? ValidationResult.Success()
+                    : ValidationResult.Error("Timeout must be between 1000 and 300000 ms")));
+
+        // Isolated sessions
+        var isolated = AnsiConsole.Confirm(
+            "[cyan]Use isolated sessions?[/] (no persistent browser profile)",
+            config.Skills.Browser.Isolated);
+        config.Skills.Browser.Isolated = isolated;
+
+        if (!isolated)
+        {
+            config.Skills.Browser.UserDataDir = _ui.PromptText(
+                "Enter user data directory path:",
+                config.Skills.Browser.UserDataDir ?? "./browser-profile");
+        }
+
+        // Optional capabilities
+        var capabilities = AnsiConsole.Prompt(
+            new MultiSelectionPrompt<string>()
+                .Title("[cyan]Select optional capabilities:[/]")
+                .NotRequired()
+                .InstructionsText("[grey](Press [blue]<space>[/] to toggle, [green]<enter>[/] to accept)[/]")
+                .AddChoices(new[] { "pdf", "vision", "testing", "tracing" }));
+        config.Skills.Browser.Capabilities = capabilities;
+
+        // Output directory
+        config.Skills.Browser.OutputDir = _ui.PromptText(
+            "Enter output directory for screenshots/PDFs:",
+            config.Skills.Browser.OutputDir ?? "./browser-outputs");
+
+        // Advanced options
+        if (AnsiConsole.Confirm("[cyan]Configure advanced options?[/]", false))
+        {
+            // Proxy
+            var useProxy = AnsiConsole.Confirm("Use a proxy server?", !string.IsNullOrEmpty(config.Skills.Browser.ProxyServer));
+            if (useProxy)
+            {
+                config.Skills.Browser.ProxyServer = _ui.PromptText(
+                    "Enter proxy server URL (e.g., http://proxy:3128):",
+                    config.Skills.Browser.ProxyServer);
+            }
+            else
+            {
+                config.Skills.Browser.ProxyServer = null;
+            }
+
+            // Blocked origins
+            var blockOrigins = AnsiConsole.Confirm("Block specific origins (e.g., ad servers)?", config.Skills.Browser.BlockedOrigins.Count > 0);
+            if (blockOrigins)
+            {
+                var originsText = _ui.PromptText(
+                    "Enter origins to block (comma-separated):",
+                    string.Join(", ", config.Skills.Browser.BlockedOrigins));
+                config.Skills.Browser.BlockedOrigins = originsText
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .ToList();
+            }
+            else
+            {
+                config.Skills.Browser.BlockedOrigins = [];
+            }
+
+            // Device emulation
+            var emulateDevice = AnsiConsole.Confirm("Emulate a mobile device?", !string.IsNullOrEmpty(config.Skills.Browser.Device));
+            if (emulateDevice)
+            {
+                config.Skills.Browser.Device = _ui.SelectOption(
+                    "Select device to emulate:",
+                    new[] { "iPhone 15", "iPhone 15 Pro", "iPhone 14", "Pixel 7", "Pixel 5", "iPad Pro", "Galaxy S21" });
+            }
+            else
+            {
+                config.Skills.Browser.Device = null;
+            }
+        }
+
+        AnsiConsole.WriteLine();
+        _ui.DisplaySuccess("Browser skill configured!");
+        _ui.DisplayInfo("Note: The browser will start when you first use a browser-related command.");
+        AnsiConsole.WriteLine();
+
+        return true;
+    }
+
+    /// <summary>
+    /// Displays the current Browser configuration.
+    /// </summary>
+    private void DisplayCurrentBrowserConfig(BrowserSkillConfig? browserConfig)
+    {
+        if (browserConfig == null)
+        {
+            AnsiConsole.MarkupLine("[grey]Browser skill is not configured (using defaults).[/]");
+            AnsiConsole.WriteLine();
+            return;
+        }
+
+        var status = browserConfig.Enabled ? "[green]Enabled[/]" : "[yellow]Disabled[/]";
+        
+        AnsiConsole.MarkupLine($"[yellow]Browser skill current configuration:[/]");
+        AnsiConsole.MarkupLine($"  Status: {status}");
+        AnsiConsole.MarkupLine($"  Browser: [cyan]{Markup.Escape(browserConfig.Browser)}[/]");
+        AnsiConsole.MarkupLine($"  Headless: [cyan]{browserConfig.Headless}[/]");
+        AnsiConsole.MarkupLine($"  Viewport: [cyan]{browserConfig.ViewportWidth}x{browserConfig.ViewportHeight}[/]");
+        AnsiConsole.MarkupLine($"  Action Timeout: [cyan]{browserConfig.ActionTimeoutMs}ms[/]");
+        AnsiConsole.MarkupLine($"  Navigation Timeout: [cyan]{browserConfig.NavigationTimeoutMs}ms[/]");
+        AnsiConsole.MarkupLine($"  Isolated Sessions: [cyan]{browserConfig.Isolated}[/]");
+        if (!browserConfig.Isolated && !string.IsNullOrEmpty(browserConfig.UserDataDir))
+        {
+            AnsiConsole.MarkupLine($"  User Data Dir: [cyan]{Markup.Escape(browserConfig.UserDataDir)}[/]");
+        }
+        if (browserConfig.Capabilities.Count > 0)
+        {
+            AnsiConsole.MarkupLine($"  Capabilities: [cyan]{string.Join(", ", browserConfig.Capabilities)}[/]");
+        }
+        AnsiConsole.MarkupLine($"  Output Dir: [cyan]{Markup.Escape(browserConfig.OutputDir)}[/]");
+        if (!string.IsNullOrEmpty(browserConfig.ProxyServer))
+        {
+            AnsiConsole.MarkupLine($"  Proxy: [cyan]{Markup.Escape(browserConfig.ProxyServer)}[/]");
+        }
+        if (browserConfig.BlockedOrigins.Count > 0)
+        {
+            AnsiConsole.MarkupLine($"  Blocked Origins: [cyan]{string.Join(", ", browserConfig.BlockedOrigins)}[/]");
+        }
+        if (!string.IsNullOrEmpty(browserConfig.Device))
+        {
+            AnsiConsole.MarkupLine($"  Device Emulation: [cyan]{Markup.Escape(browserConfig.Device)}[/]");
+        }
+        AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// Displays Browser skill prerequisites.
+    /// </summary>
+    private void DisplayBrowserPrerequisites()
+    {
+        var panel = new Panel(
+            new Markup(
+                $"[bold]Browser Skill Prerequisites[/]\n\n" +
+                $"The Browser skill uses Playwright MCP to automate web browsers.\n\n" +
+                $"[yellow]Requirements:[/]\n" +
+                $"  • [cyan]Node.js[/] must be installed (https://nodejs.org/)\n" +
+                $"  • The Playwright browser will be downloaded automatically on first use\n\n" +
+                $"[yellow]Available Tools:[/]\n" +
+                $"  • Navigate to URLs, go back/forward\n" +
+                $"  • Click, type, hover on elements\n" +
+                $"  • Fill forms, select options\n" +
+                $"  • Take screenshots, generate PDFs\n" +
+                $"  • Manage browser tabs\n" +
+                $"  • Access console logs and network requests"))
+        {
+            Header = new PanelHeader("[yellow]Prerequisites[/]"),
             Border = BoxBorder.Rounded,
             Padding = new Padding(2, 1)
         };

@@ -1223,7 +1223,57 @@ This information is captured at agent initialization time and helps the agent:
 |------|--------|-------------|
 | `Microbot.Console/Services/AgentService.cs` | Modified | Added timezone and time info to GetSystemPrompt() |
 
-### Phase 13: Teams Skill 🔲 PLANNED
+### Phase 13: Browser Skill (Playwright MCP) ✅ COMPLETED
+- [x] Create BrowserSkillConfig in MicrobotConfig.cs
+- [x] Create BrowserSkillLoader in Microbot.Skills/Loaders
+- [x] Update SkillManager to load Browser skill
+- [x] Add Browser skill to GetAvailableSkills()
+- [x] Add Browser configuration wizard to SkillConfigurationService
+- [x] Update AGENTS.md with Browser skill documentation
+- [x] Create plans/browser-skill-implementation.md
+
+#### Browser Skill Features
+| Feature | Description |
+|---------|-------------|
+| Web Navigation | Navigate to URLs, go back/forward, refresh |
+| Element Interaction | Click, type, hover, drag-and-drop |
+| Page Snapshots | Accessibility tree for AI understanding |
+| Screenshots | Capture page or element screenshots |
+| PDF Generation | Generate PDFs (with pdf capability) |
+| Form Filling | Fill multiple form fields at once |
+| Tab Management | Create, close, switch tabs |
+| Console/Network | Access browser logs and network requests |
+| Device Emulation | Emulate mobile devices (iPhone, Pixel, etc.) |
+
+#### Configuration Options
+| Option | Default | Description |
+|--------|---------|-------------|
+| `enabled` | `true` | Enable/disable Browser skill |
+| `browser` | `chromium` | Browser engine (chromium, firefox, webkit) |
+| `headless` | `true` | Run without visible window |
+| `viewportWidth` | `1280` | Browser viewport width |
+| `viewportHeight` | `720` | Browser viewport height |
+| `actionTimeoutMs` | `30000` | Timeout for actions |
+| `navigationTimeoutMs` | `60000` | Timeout for navigation |
+| `isolated` | `true` | Use isolated sessions |
+| `capabilities` | `[]` | Optional: pdf, vision, testing, tracing |
+| `outputDir` | `./browser-outputs` | Output directory |
+
+#### Files Created/Modified
+| File | Action | Description |
+|------|--------|-------------|
+| `Microbot.Core/Models/MicrobotConfig.cs` | Modified | Added BrowserSkillConfig class |
+| `Microbot.Skills/Loaders/BrowserSkillLoader.cs` | Created | Browser skill loader using Playwright MCP |
+| `Microbot.Skills/SkillManager.cs` | Modified | Added Browser skill loading and disposal |
+| `Microbot.Console/Services/SkillConfigurationService.cs` | Modified | Added Browser configuration wizard |
+| `AGENTS.md` | Modified | Added Browser skill documentation |
+| `plans/browser-skill-implementation.md` | Created | Detailed implementation documentation |
+
+#### Prerequisites
+- Node.js must be installed for Playwright MCP to work
+- Browser skill fails gracefully if Node.js is not available
+
+### Phase 14: Teams Skill 🔲 PLANNED
 - [ ] Create Microbot.Skills.Teams project
 - [ ] Implement TeamsSkillMode enum (ReadOnly, Full)
 - [ ] Add TeamsSkillConfig to MicrobotConfig

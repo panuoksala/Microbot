@@ -111,6 +111,11 @@ public class SkillsConfig
     /// Scheduling skill configuration.
     /// </summary>
     public SchedulingSkillConfig Scheduling { get; set; } = new();
+
+    /// <summary>
+    /// Browser skill configuration (Playwright MCP).
+    /// </summary>
+    public BrowserSkillConfig Browser { get; set; } = new();
 }
 
 /// <summary>
@@ -278,6 +283,93 @@ public class SchedulingSkillConfig
     /// Whether to run missed schedules on startup.
     /// </summary>
     public bool RunMissedOnStartup { get; set; } = false;
+}
+
+/// <summary>
+/// Configuration for the built-in Browser skill using Playwright MCP.
+/// </summary>
+public class BrowserSkillConfig
+{
+    /// <summary>
+    /// Whether the Browser skill is enabled.
+    /// Default: true (enabled by default as a core feature)
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Browser to use: "chromium", "firefox", or "webkit".
+    /// Default: "chromium"
+    /// </summary>
+    public string Browser { get; set; } = "chromium";
+
+    /// <summary>
+    /// Whether to run the browser in headless mode.
+    /// Default: true (headless for server/automation scenarios)
+    /// </summary>
+    public bool Headless { get; set; } = true;
+
+    /// <summary>
+    /// Browser viewport width in pixels.
+    /// Default: 1280
+    /// </summary>
+    public int ViewportWidth { get; set; } = 1280;
+
+    /// <summary>
+    /// Browser viewport height in pixels.
+    /// Default: 720
+    /// </summary>
+    public int ViewportHeight { get; set; } = 720;
+
+    /// <summary>
+    /// Timeout for browser actions in milliseconds.
+    /// Default: 30000 (30 seconds)
+    /// </summary>
+    public int ActionTimeoutMs { get; set; } = 30000;
+
+    /// <summary>
+    /// Timeout for navigation in milliseconds.
+    /// Default: 60000 (60 seconds)
+    /// </summary>
+    public int NavigationTimeoutMs { get; set; } = 60000;
+
+    /// <summary>
+    /// Whether to use isolated browser sessions (no persistent profile).
+    /// Default: true
+    /// </summary>
+    public bool Isolated { get; set; } = true;
+
+    /// <summary>
+    /// Path to user data directory for persistent browser profile.
+    /// Only used when Isolated is false.
+    /// </summary>
+    public string? UserDataDir { get; set; }
+
+    /// <summary>
+    /// Optional capabilities to enable: "pdf", "vision", "testing", "tracing".
+    /// Default: empty (core capabilities only)
+    /// </summary>
+    public List<string> Capabilities { get; set; } = [];
+
+    /// <summary>
+    /// Output directory for screenshots, PDFs, and other browser outputs.
+    /// Default: "./browser-outputs"
+    /// </summary>
+    public string OutputDir { get; set; } = "./browser-outputs";
+
+    /// <summary>
+    /// Optional proxy server URL.
+    /// </summary>
+    public string? ProxyServer { get; set; }
+
+    /// <summary>
+    /// Origins to block (e.g., ad servers).
+    /// </summary>
+    public List<string> BlockedOrigins { get; set; } = [];
+
+    /// <summary>
+    /// Device to emulate (e.g., "iPhone 15", "Pixel 7").
+    /// </summary>
+    public string? Device { get; set; }
 }
 
 /// <summary>

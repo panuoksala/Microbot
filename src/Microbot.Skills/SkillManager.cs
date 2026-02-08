@@ -9,7 +9,7 @@ using System.Collections.Generic;
 using System.Linq;
 
 /// <summary>
-/// Manages the loading and registration of all skills (MCP, NuGet, and built-in skills like Outlook, Teams, Slack, and YouTrack).
+/// Manages the loading and registration of all skills (MCP, NuGet, and built-in skills like Outlook, Teams, Slack, YouTrack, and Browser).
 /// </summary>
 public class SkillManager : IAsyncDisposable
 {
@@ -22,6 +22,7 @@ public class SkillManager : IAsyncDisposable
     private readonly TeamsSkillLoader? _teamsLoader;
     private readonly SlackSkillLoader? _slackLoader;
     private readonly YouTrackSkillLoader? _youTrackLoader;
+    private readonly BrowserSkillLoader? _browserLoader;
     private readonly List<KernelPlugin> _loadedPlugins = [];
     private readonly Action<string>? _deviceCodeCallback;
     private bool _disposed;
@@ -83,6 +84,14 @@ public class SkillManager : IAsyncDisposable
             _youTrackLoader = new YouTrackSkillLoader(
                 config.YouTrack,
                 loggerFactory?.CreateLogger<YouTrackSkillLoader>());
+        }
+
+        // Initialize Browser loader if configured (enabled by default)
+        if (config.Browser?.Enabled == true)
+        {
+            _browserLoader = new BrowserSkillLoader(
+                config.Browser,
+                loggerFactory?.CreateLogger<BrowserSkillLoader>());
         }
     }
 
@@ -208,6 +217,22 @@ public class SkillManager : IAsyncDisposable
             }
         }
 
+        // Load Browser skill (Playwright MCP)
+        if (_browserLoader != null)
+        {
+            try
+            {
+                _logger?.LogInformation("Loading Browser skill (Playwright MCP)...");
+                var browserPlugins = await _browserLoader.LoadSkillsAsync(cancellationToken);
+                _loadedPlugins.AddRange(browserPlugins);
+                _logger?.LogInformation("Loaded {Count} Browser plugins", browserPlugins.Count());
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error loading Browser skill");
+            }
+        }
+
         _logger?.LogInformation("Total plugins loaded: {Count}", _loadedPlugins.Count);
 
         return _loadedPlugins;
@@ -314,6 +339,20 @@ public class SkillManager : IAsyncDisposable
                     : null
         });
 
+        // Built-in: Browser skill (Playwright MCP)
+        skills.Add(new AvailableSkill
+        {
+            Id = "browser",
+            Name = "Browser",
+            Description = "Web browser automation using Playwright MCP - navigate pages, click elements, fill forms, take screenshots (requires Node.js)",
+            Type = SkillType.BuiltIn,
+            IsEnabled = _config.Browser?.Enabled ?? true, // Enabled by default
+            IsConfigured = true, // No external configuration required
+            ConfigurationSummary = _config.Browser?.Enabled == true
+                ? $"Browser: {_config.Browser.Browser}, Headless: {_config.Browser.Headless}, Viewport: {_config.Browser.ViewportWidth}x{_config.Browser.ViewportHeight}"
+                : "Disabled"
+        });
+
         return skills;
     }
 
@@ -344,6 +383,11 @@ public class SkillManager : IAsyncDisposable
         if (_youTrackLoader != null)
         {
             await _youTrackLoader.DisposeAsync();
+        }
+
+        if (_browserLoader != null)
+        {
+            await _browserLoader.DisposeAsync();
         }
 
         _loadedPlugins.Clear();

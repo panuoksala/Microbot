@@ -42,7 +42,8 @@ Microbot/
 │   ├── memory-system-implementation.md # Long-term memory system
 │   ├── outlook-skill-implementation.md # Outlook skill implementation details
 │   ├── youtrack-skill-implementation.md # YouTrack skill implementation details
-│   └── scheduling-skill-implementation.md # Scheduling skill implementation details
+│   ├── scheduling-skill-implementation.md # Scheduling skill implementation details
+│   └── browser-skill-implementation.md # Browser skill (Playwright MCP) implementation
 ├── memory/                      # Memory storage folder
 │   └── sessions/                # Session transcripts
 ├── skills/                      # Runtime skill folders
@@ -158,6 +159,17 @@ Microbot/
   - AI-accessible via ScheduleSkill (Semantic Kernel plugin)
   - Background executor with configurable check interval
   - See plans/scheduling-skill-implementation.md for details
+- ✅ Browser skill with Playwright MCP integration
+  - Web navigation (navigate, back, forward, refresh)
+  - Element interaction (click, type, hover, drag-and-drop)
+  - Page snapshots (accessibility tree for AI understanding)
+  - Screenshots and PDF generation
+  - Form filling and option selection
+  - Tab management (create, close, switch)
+  - Console and network monitoring
+  - Device emulation (iPhone, Pixel, iPad, etc.)
+  - Enabled by default (requires Node.js)
+  - See plans/browser-skill-implementation.md for details
 - 🔲 Teams skill with Microsoft Graph integration (planned)
   - Multi-tenant support (home + guest tenants)
   - Channel messages (read, send, reply)
