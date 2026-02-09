@@ -7,7 +7,7 @@ This file provides instructions for AI agents working on the Microbot codebase.
 Microbot is an agentic AI application built with Microsoft Semantic Kernel that acts as a personal bot supporting various tools/skills. It supports:
 - **MCP Servers** - Model Context Protocol servers for external tool integration
 - **NuGet Packages** - .NET assemblies loaded dynamically as skills
-- **Multiple AI Providers** - OpenAI, Azure OpenAI, and Ollama
+- **Multiple AI Providers** - OpenAI, Azure OpenAI, Anthropic (Claude), and Ollama
 
 ## Documentation Structure
 
@@ -105,7 +105,7 @@ Microbot/
   - Links with clickable formatting
   - Blockquotes and horizontal rules
 - ✅ First-time setup wizard
-- ✅ AI Provider support: OpenAI, Azure OpenAI, Ollama
+- ✅ AI Provider support: OpenAI, Azure OpenAI, Anthropic (Claude), Ollama
 - ✅ Streaming responses (collected and rendered with markdown)
 - ✅ Chat history management
 - ✅ Outlook skill with Microsoft Graph integration
@@ -181,11 +181,15 @@ Microbot/
 
 ### AI Provider Configuration
 
-The application supports three AI providers configured in `AgentService.ConfigureAiProvider()`:
+The application supports four AI providers configured in `AgentService.ConfigureAiProvider()`:
 
 1. **OpenAI** - Direct OpenAI API
 2. **Azure OpenAI** - Azure-hosted OpenAI models
-3. **Ollama** - Local LLM via OpenAI-compatible API (endpoint: `http://localhost:11434/v1`)
+3. **Anthropic** - Direct Anthropic API for Claude models (claude-sonnet-4-5-20250929, claude-opus-4-5-20250929, etc.)
+   - Uses custom `AnthropicChatCompletionService` implementing `IChatCompletionService`
+   - Supports function calling/tools
+   - Requires `MaxTokens` configuration (default: 4096)
+4. **Ollama** - Local LLM via OpenAI-compatible API (endpoint: `http://localhost:11434/v1`)
 
 ## Development Guidelines
 
