@@ -122,7 +122,7 @@ public class Program
         // Select AI provider
         var provider = _ui.SelectOption(
             "Select your AI provider:",
-            new[] { "AzureOpenAI", "OpenAI", "Ollama" });
+            new[] { "AzureOpenAI", "OpenAI", "Anthropic", "Ollama" });
         _config.AiProvider.Provider = provider;
 
         // Get model ID
@@ -130,6 +130,7 @@ public class Program
         {
             "AzureOpenAI" => "gpt-4o",
             "OpenAI" => "gpt-4o",
+            "Anthropic" => "claude-sonnet-4-5-20250929",
             "Ollama" => "llama3.2",
             _ => "gpt-4o"
         };
@@ -153,6 +154,18 @@ public class Program
         if (provider != "Ollama")
         {
             _config.AiProvider.ApiKey = _ui.PromptSecret("Enter your API key:");
+        }
+
+        // Get max tokens for Anthropic (required)
+        if (provider == "Anthropic")
+        {
+            var maxTokensInput = _ui.PromptText(
+                "Enter max tokens for responses (default: 4096):",
+                "4096");
+            if (int.TryParse(maxTokensInput, out var maxTokens))
+            {
+                _config.AiProvider.MaxTokens = maxTokens;
+            }
         }
 
         // Agent name

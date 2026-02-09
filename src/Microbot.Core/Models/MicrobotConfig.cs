@@ -42,7 +42,7 @@ public class MicrobotConfig
 public class AiProviderConfig
 {
     /// <summary>
-    /// The AI provider type: "OpenAI", "AzureOpenAI", etc.
+    /// The AI provider type: "OpenAI", "AzureOpenAI", "Anthropic", or "Ollama".
     /// </summary>
     public string Provider { get; set; } = "AzureOpenAI";
 
@@ -52,7 +52,7 @@ public class AiProviderConfig
     public string ModelId { get; set; } = "gpt-4o";
 
     /// <summary>
-    /// The endpoint URL (required for Azure OpenAI).
+    /// The endpoint URL (required for Azure OpenAI, optional for Ollama).
     /// </summary>
     public string? Endpoint { get; set; }
 
@@ -60,6 +60,12 @@ public class AiProviderConfig
     /// The API key for authentication.
     /// </summary>
     public string? ApiKey { get; set; }
+
+    /// <summary>
+    /// Maximum tokens for responses (required for Anthropic, optional for others).
+    /// Default: 4096
+    /// </summary>
+    public int MaxTokens { get; set; } = 4096;
 }
 
 /// <summary>

@@ -223,6 +223,16 @@ public class AgentService : IAsyncDisposable
                     apiKey: provider.ApiKey ?? throw new InvalidOperationException("Azure OpenAI API key is required."));
                 break;
 
+            case "anthropic":
+            case "claude":
+                // For Anthropic/Claude, we use our custom IChatCompletionService implementation
+                var anthropicService = new AnthropicChatCompletionService(
+                    apiKey: provider.ApiKey ?? throw new InvalidOperationException("Anthropic API key is required."),
+                    modelId: provider.ModelId,
+                    maxTokens: provider.MaxTokens);
+                builder.Services.AddSingleton<IChatCompletionService>(anthropicService);
+                break;
+
             case "ollama":
                 // For Ollama, we use the OpenAI-compatible API with custom endpoint
                 var endpoint = provider.Endpoint ?? "http://localhost:11434/v1";
